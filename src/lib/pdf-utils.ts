@@ -1,0 +1,267 @@
+import { PDFDocument, degrees } from "pdf-lib";
+
+export async function mergePDFs(files: File[]): Promise<Uint8Array> {
+  const mergedPdf = await PDFDocument.create();
+
+  for (const file of files) {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await PDFDocument.load(arrayBuffer);
+    const copiedPages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
+    copiedPages.forEach((page) => mergedPdf.addPage(page));
+  }
+
+  return mergedPdf.save();
+}
+
+export async function splitPDF(
+  file: File,
+  ranges: { start: number; end: number }[]
+): Promise<Uint8Array[]> {
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await PDFDocument.load(arrayBuffer);
+  const results: Uint8Array[] = [];
+
+  for (const range of ranges) {
+    const newPdf = await PDFDocument.create();
+    const pageIndices = [];
+    for (let i = range.start; i <= range.end && i < pdf.getPageCount(); i++) {
+      pageIndices.push(i);
+    }
+    const copiedPages = await newPdf.copyPages(pdf, pageIndices);
+    copiedPages.forEach((page) => newPdf.addPage(page));
+    results.push(await newPdf.save());
+  }
+
+  return results;
+}
+
+export async function extractPages(
+  file: File,
+  pageNumbers: number[]
+): Promise<Uint8Array> {
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await PDFDocument.load(arrayBuffer);
+  const newPdf = await PDFDocument.create();
+
+  const validIndices = pageNumbers
+    .map((n) => n - 1) // Convert to 0-indexed
+    .filter((i) => i >= 0 && i < pdf.getPageCount());
+
+  const copiedPages = await newPdf.copyPages(pdf, validIndices);
+  copiedPages.forEach((page) => newPdf.addPage(page));
+
+  return newPdf.save();
+}
+
+export async function organizePDF(
+  file: File,
+  pageOrder: number[] // 1-indexed page numbers in desired order
+): Promise<Uint8Array> {
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await PDFDocument.load(arrayBuffer);
+  const newPdf = await PDFDocument.create();
+
+  // Convert to 0-indexed and filter valid indices
+  const validIndices = pageOrder
+    .map((n) => n - 1)
+    .filter((i) => i >= 0 && i < pdf.getPageCount());
+
+  const copiedPages = await newPdf.copyPages(pdf, validIndices);
+  copiedPages.forEach((page) => newPdf.addPage(page));
+
+  return newPdf.save();
+}
+
+export async function rotatePDF(
+  file: File,
+  rotation: 0 | 90 | 180 | 270,
+  pageNumbers?: number[] // If undefined, rotate all pages
+): Promise<Uint8Array> {
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await PDFDocument.load(arrayBuffer);
+  const pages = pdf.getPages();
+
+  const indicesToRotate = pageNumbers
+    ? pageNumbers.map((n) => n - 1).filter((i) => i >= 0 && i < pages.length)
+    : pages.map((_, i) => i);
+
+  indicesToRotate.forEach((index) => {
+    const page = pages[index];
+    const currentRotation = page.getRotation().angle;
+    page.setRotation(degrees((currentRotation + rotation) % 360));
+  });
+
+  return pdf.save();
+}
+
+export async function addWatermark(
+  file: File,
+  text: string,
+  options: {
+    fontSize?: number;
+    opacity?: number;
+    rotation?: number;
+    x?: number; // 0-100 percentage from left
+    y?: number; // 0-100 percentage from bottom
+  } = {}
+): Promise<Uint8Array> {
+  const { fontSize = 50, opacity = 0.3, rotation = -45, x = 50, y = 50 } = options;
+
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await PDFDocument.load(arrayBuffer);
+  const pages = pdf.getPages();
+
+  for (const page of pages) {
+    const { width, height } = page.getSize();
+    // Convert percentage to actual coordinates
+    const actualX = (x / 100) * width - (text.length * fontSize) / 4;
+    const actualY = (y / 100) * height;
+    page.drawText(text, {
+      x: actualX,
+      y: actualY,
+      size: fontSize,
+      opacity,
+      rotate: degrees(rotation),
+    });
+  }
+
+  return pdf.save();
+}
+
+export async function addPageNumbers(
+  file: File,
+  options: {
+    fontSize?: number;
+    startFrom?: number;
+    format?: string; // e.g., "Page {n} of {total}"
+    x?: number; // 0-100 percentage from left
+    y?: number; // 0-100 percentage from bottom
+  } = {}
+): Promise<Uint8Array> {
+  const {
+    fontSize = 12,
+    startFrom = 1,
+    format = "{n}",
+    x = 50,
+    y = 5,
+  } = options;
+
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await PDFDocument.load(arrayBuffer);
+  const pages = pdf.getPages();
+  const totalPages = pages.length;
+
+  pages.forEach((page, index) => {
+    const { width, height } = page.getSize();
+    const pageNum = index + startFrom;
+    const text = format.replace("{n}", pageNum.toString()).replace("{total}", totalPages.toString());
+
+    // Convert percentage to actual coordinates
+    const actualX = (x / 100) * width - (text.length * fontSize) / 4;
+    const actualY = (y / 100) * height;
+
+    page.drawText(text, { x: actualX, y: actualY, size: fontSize });
+  });
+
+  return pdf.save();
+}
+
+export async function getPDFPageCount(file: File): Promise<number> {
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await PDFDocument.load(arrayBuffer);
+  return pdf.getPageCount();
+}
+
+export async function compressPDF(file: File): Promise<Uint8Array> {
+  // Note: pdf-lib has limited compression capabilities
+  // For better compression, you'd need a server-side solution
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await PDFDocument.load(arrayBuffer);
+
+  // Remove metadata to reduce size slightly
+  pdf.setTitle("");
+  pdf.setAuthor("");
+  pdf.setSubject("");
+  pdf.setKeywords([]);
+  pdf.setProducer("");
+  pdf.setCreator("");
+
+  return pdf.save({
+    useObjectStreams: true, // Better compression
+  });
+}
+
+export function downloadBlob(data: Uint8Array, filename: string) {
+  const blob = new Blob([new Uint8Array(data)], { type: "application/pdf" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+export function downloadMultiple(files: { data: Uint8Array; filename: string }[]) {
+  files.forEach(({ data, filename }, index) => {
+    setTimeout(() => downloadBlob(data, filename), index * 100);
+  });
+}
+
+export async function addSignature(
+  file: File,
+  signatureDataUrl: string,
+  options: {
+    x?: number; // 0-100 percentage from left
+    y?: number; // 0-100 percentage from bottom
+    width?: number; // width in points
+    height?: number; // height in points
+    pageNumbers?: number[]; // pages to sign (1-indexed), if undefined signs all
+  } = {}
+): Promise<Uint8Array> {
+  const { x = 70, y = 10, width = 150, height = 50, pageNumbers } = options;
+
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await PDFDocument.load(arrayBuffer);
+  const pages = pdf.getPages();
+
+  // Convert data URL to image
+  const signatureBytes = await fetch(signatureDataUrl).then(res => res.arrayBuffer());
+
+  // Determine image type and embed
+  let signatureImage;
+  if (signatureDataUrl.includes('image/png')) {
+    signatureImage = await pdf.embedPng(signatureBytes);
+  } else {
+    signatureImage = await pdf.embedJpg(signatureBytes);
+  }
+
+  // Calculate aspect ratio
+  const aspectRatio = signatureImage.width / signatureImage.height;
+  const finalWidth = width;
+  const finalHeight = width / aspectRatio;
+
+  // Determine which pages to sign
+  const pagesToSign = pageNumbers
+    ? pageNumbers.map(n => n - 1).filter(i => i >= 0 && i < pages.length)
+    : pages.map((_, i) => i);
+
+  for (const pageIndex of pagesToSign) {
+    const page = pages[pageIndex];
+    const { width: pageWidth, height: pageHeight } = page.getSize();
+
+    // Convert percentage to actual coordinates
+    const actualX = (x / 100) * pageWidth - finalWidth / 2;
+    const actualY = (y / 100) * pageHeight - finalHeight / 2;
+
+    page.drawImage(signatureImage, {
+      x: actualX,
+      y: actualY,
+      width: finalWidth,
+      height: finalHeight,
+    });
+  }
+
+  return pdf.save();
+}

@@ -1,65 +1,254 @@
-import Image from "next/image";
+import Link from "next/link";
+import {
+  MergeIcon,
+  SplitIcon,
+  CompressIcon,
+  ImageIcon,
+  FileIcon,
+  RotateIcon,
+  WatermarkIcon,
+  NumbersIcon,
+  OcrIcon,
+  SignatureIcon,
+  OrganizeIcon,
+} from "@/components/icons";
+
+const tools = [
+  {
+    title: "Organize PDF",
+    description: "Sort, add and delete pages with drag & drop",
+    href: "/organize",
+    icon: OrganizeIcon,
+    category: "organize",
+    colorClass: "tool-organize",
+  },
+  {
+    title: "Merge PDF",
+    description: "Combine multiple PDFs into one document",
+    href: "/merge",
+    icon: MergeIcon,
+    category: "organize",
+    colorClass: "tool-merge",
+  },
+  {
+    title: "Split PDF",
+    description: "Extract pages or divide into multiple files",
+    href: "/split",
+    icon: SplitIcon,
+    category: "organize",
+    colorClass: "tool-split",
+  },
+  {
+    title: "Compress",
+    description: "Reduce file size while keeping quality",
+    href: "/compress",
+    icon: CompressIcon,
+    category: "optimize",
+    colorClass: "tool-compress",
+  },
+  {
+    title: "PDF → Images",
+    description: "Convert pages to JPG or PNG",
+    href: "/pdf-to-images",
+    icon: ImageIcon,
+    category: "convert",
+    colorClass: "tool-pdf-to-images",
+  },
+  {
+    title: "Images → PDF",
+    description: "Create a PDF from your images",
+    href: "/images-to-pdf",
+    icon: FileIcon,
+    category: "convert",
+    colorClass: "tool-images-to-pdf",
+  },
+  {
+    title: "Rotate",
+    description: "Rotate pages in any direction",
+    href: "/rotate",
+    icon: RotateIcon,
+    category: "organize",
+    colorClass: "tool-rotate",
+  },
+  {
+    title: "Watermark",
+    description: "Add text watermarks to documents",
+    href: "/watermark",
+    icon: WatermarkIcon,
+    category: "edit",
+    colorClass: "tool-watermark",
+  },
+  {
+    title: "Page Numbers",
+    description: "Add page numbers to your PDF",
+    href: "/page-numbers",
+    icon: NumbersIcon,
+    category: "edit",
+    colorClass: "tool-page-numbers",
+  },
+  {
+    title: "OCR",
+    description: "Extract text from scanned docs",
+    href: "/ocr",
+    icon: OcrIcon,
+    category: "convert",
+    colorClass: "tool-ocr",
+  },
+  {
+    title: "Sign PDF",
+    description: "Add your signature to documents",
+    href: "/sign",
+    icon: SignatureIcon,
+    category: "edit",
+    colorClass: "tool-sign",
+  },
+];
+
+const categoryLabels: Record<string, string> = {
+  organize: "Organize",
+  optimize: "Optimize",
+  convert: "Convert",
+  edit: "Edit",
+};
 
 export default function Home() {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex min-h-screen w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
+    <div className="page-enter space-y-16">
+      {/* Hero Section */}
+      <section className="space-y-8 py-8">
+        <div className="max-w-3xl">
+          <h1 className="text-5xl sm:text-6xl lg:text-7xl font-display leading-[1.1] tracking-tight">
+            PDF tools that{" "}
+            <span className="italic">respect</span>{" "}
+            <span className="relative inline-block">
+              your privacy
+              <svg className="absolute -bottom-2 left-0 w-full h-3 text-primary" viewBox="0 0 200 12" preserveAspectRatio="none">
+                <path d="M0,8 Q50,0 100,8 T200,8" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round"/>
+              </svg>
+            </span>
           </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+
+        <p className="text-xl text-muted-foreground max-w-xl leading-relaxed">
+          Everything runs in your browser. Your files never touch our servers—because we don&apos;t have any.
+        </p>
+
+        <div className="flex flex-wrap gap-6 pt-2">
+          <div className="flex items-center gap-3">
+            <div className="w-5 h-5 bg-[#2D5A3D] border-2 border-foreground flex items-center justify-center">
+              <svg className="w-3 h-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            </div>
+            <span className="font-semibold text-sm">No uploads</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-5 h-5 bg-[#2D5A3D] border-2 border-foreground flex items-center justify-center">
+              <svg className="w-3 h-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            </div>
+            <span className="font-semibold text-sm">No servers</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="w-5 h-5 bg-[#2D5A3D] border-2 border-foreground flex items-center justify-center">
+              <svg className="w-3 h-3 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            </div>
+            <span className="font-semibold text-sm">Free forever</span>
+          </div>
         </div>
-      </main>
+      </section>
+
+      {/* Tools Grid */}
+      <section className="space-y-8">
+        <div className="flex items-center gap-4">
+          <h2 className="text-2xl font-display">Tools</h2>
+          <div className="flex-1 h-0.5 bg-foreground" />
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 stagger-children">
+          {tools.map((tool) => {
+            const Icon = tool.icon;
+
+            return (
+              <Link key={tool.href} href={tool.href}>
+                <article className={`tool-card ${tool.colorClass} group h-full cursor-pointer`}>
+                  <span className="category-tag">{categoryLabels[tool.category]}</span>
+
+                  <div className="space-y-4">
+                    <div className="tool-icon">
+                      <Icon className="w-6 h-6" />
+                    </div>
+
+                    <div className="space-y-2 pr-16">
+                      <h3 className="text-xl font-bold text-foreground">
+                        {tool.title}
+                      </h3>
+                      <p className="text-sm text-muted-foreground leading-relaxed">
+                        {tool.description}
+                      </p>
+                    </div>
+
+                    <div className="flex items-center gap-2 text-sm font-bold text-primary opacity-0 group-hover:opacity-100 transition-opacity pt-2">
+                      <span>Use tool</span>
+                      <svg className="w-4 h-4 group-hover:translate-x-1 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M5 12h14" />
+                        <path d="m12 5 7 7-7 7" />
+                      </svg>
+                    </div>
+                  </div>
+                </article>
+              </Link>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* Features Section */}
+      <section className="py-12 border-t-2 border-foreground">
+        <div className="grid sm:grid-cols-3 gap-6">
+          <div className="feature-item">
+            <div className="feature-icon">
+              <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                <polyline points="9 12 11 14 15 10" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-bold mb-2">Privacy First</h3>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              Your documents stay on your device. We can&apos;t see them even if we wanted to.
+            </p>
+          </div>
+
+          <div className="feature-item">
+            <div className="feature-icon">
+              <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10" />
+                <polyline points="12 6 12 12 16 14" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-bold mb-2">Lightning Fast</h3>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              No upload wait times. Processing starts instantly in your browser.
+            </p>
+          </div>
+
+          <div className="feature-item">
+            <div className="feature-icon">
+              <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M18.36 6.64a9 9 0 1 1-12.73 0" />
+                <line x1="12" y1="2" x2="12" y2="12" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-bold mb-2">Works Offline</h3>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              Once loaded, use the tools even without an internet connection.
+            </p>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }

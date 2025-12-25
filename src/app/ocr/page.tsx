@@ -1,0 +1,334 @@
+"use client";
+
+import { useState, useCallback } from "react";
+import Link from "next/link";
+import { FileDropzone } from "@/components/pdf/file-dropzone";
+import Tesseract from "tesseract.js";
+import { pdfToImages } from "@/lib/pdf-image-utils";
+import { ArrowLeftIcon, OcrIcon, DownloadIcon, LoaderIcon } from "@/components/icons";
+
+export default function OcrPage() {
+  const [file, setFile] = useState<File | null>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [statusText, setStatusText] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [extractedText, setExtractedText] = useState<string>("");
+  const [language, setLanguage] = useState("eng");
+  const [copied, setCopied] = useState(false);
+
+  const languages = [
+    { code: "eng", name: "English" },
+    { code: "spa", name: "Spanish" },
+    { code: "fra", name: "French" },
+    { code: "deu", name: "German" },
+    { code: "ita", name: "Italian" },
+    { code: "por", name: "Portuguese" },
+    { code: "chi_sim", name: "Chinese (Simplified)" },
+    { code: "chi_tra", name: "Chinese (Traditional)" },
+    { code: "jpn", name: "Japanese" },
+    { code: "kor", name: "Korean" },
+    { code: "ara", name: "Arabic" },
+    { code: "rus", name: "Russian" },
+  ];
+
+  const handleFileSelected = useCallback((files: File[]) => {
+    if (files.length > 0) {
+      setFile(files[0]);
+      setError(null);
+      setExtractedText("");
+    }
+  }, []);
+
+  const handleClear = useCallback(() => {
+    setFile(null);
+    setError(null);
+    setExtractedText("");
+  }, []);
+
+  const handleExtract = async () => {
+    if (!file) return;
+
+    setIsProcessing(true);
+    setProgress(0);
+    setError(null);
+    setExtractedText("");
+
+    try {
+      let imagesToProcess: Blob[] = [];
+
+      if (file.type === "application/pdf") {
+        setStatusText("Converting PDF pages to images...");
+        const images = await pdfToImages(file, {
+          scale: 2,
+          onProgress: (current, total) => {
+            setProgress(Math.round((current / total) * 30));
+          },
+        });
+        imagesToProcess = images.map((i) => i.blob);
+      } else {
+        imagesToProcess = [file];
+      }
+
+      setStatusText("Extracting text with OCR...");
+
+      const allText: string[] = [];
+
+      for (let i = 0; i < imagesToProcess.length; i++) {
+        const result = await Tesseract.recognize(imagesToProcess[i], language, {
+          logger: (m) => {
+            if (m.status === "recognizing text") {
+              const pageProgress = m.progress * 100;
+              const overallProgress = 30 + ((i + pageProgress / 100) / imagesToProcess.length) * 70;
+              setProgress(Math.round(overallProgress));
+            }
+          },
+        });
+
+        if (imagesToProcess.length > 1) {
+          allText.push(`--- Page ${i + 1} ---\n${result.data.text}`);
+        } else {
+          allText.push(result.data.text);
+        }
+      }
+
+      setExtractedText(allText.join("\n\n"));
+      setProgress(100);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to extract text");
+    } finally {
+      setIsProcessing(false);
+      setStatusText("");
+    }
+  };
+
+  const handleCopyText = async () => {
+    await navigator.clipboard.writeText(extractedText);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleDownloadText = () => {
+    const blob = new Blob([extractedText], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = file ? `${file.name.replace(/\.[^.]+$/, "")}_ocr.txt` : "extracted_text.txt";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleStartOver = () => {
+    setFile(null);
+    setExtractedText("");
+    setError(null);
+    setProgress(0);
+  };
+
+  return (
+    <div className="page-enter max-w-4xl mx-auto space-y-8">
+      {/* Header */}
+      <div className="space-y-6">
+        <Link href="/" className="back-link">
+          <ArrowLeftIcon className="w-4 h-4" />
+          Back to tools
+        </Link>
+
+        <div className="flex items-center gap-5">
+          <div className="tool-icon tool-ocr">
+            <OcrIcon className="w-7 h-7" />
+          </div>
+          <div>
+            <h1 className="text-4xl font-display">OCR - Extract Text</h1>
+            <p className="text-muted-foreground mt-1">
+              Extract text from scanned PDFs or images
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      {!file ? (
+        <div className="max-w-2xl mx-auto">
+          <FileDropzone
+            accept=".pdf,.png,.jpg,.jpeg,.gif,.bmp,.webp"
+            multiple={false}
+            onFilesSelected={handleFileSelected}
+            title="Drop your PDF or image here"
+            subtitle="PDF, PNG, JPG, GIF, BMP, WebP"
+          />
+        </div>
+      ) : extractedText ? (
+        <div className="space-y-6">
+          {/* Results Header */}
+          <div className="flex flex-wrap items-center justify-between gap-4 p-4 bg-card border-2 border-foreground">
+            <span className="font-bold">Extracted Text</span>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleCopyText}
+                className={`px-4 py-2 border-2 border-foreground font-bold text-sm transition-all
+                  ${copied ? "bg-[#2D5A3D] text-white" : "bg-muted hover:bg-accent"}
+                `}
+              >
+                {copied ? "Copied!" : "Copy"}
+              </button>
+              <button
+                onClick={handleDownloadText}
+                className="px-4 py-2 bg-muted border-2 border-foreground font-bold text-sm hover:bg-accent transition-colors"
+              >
+                Download .txt
+              </button>
+              <button
+                onClick={handleStartOver}
+                className="px-4 py-2 text-muted-foreground font-semibold text-sm hover:text-foreground transition-colors"
+              >
+                Start Over
+              </button>
+            </div>
+          </div>
+
+          {/* Text Output */}
+          <div className="border-2 border-foreground bg-white p-6 max-h-[500px] overflow-y-auto">
+            <pre className="whitespace-pre-wrap text-sm font-mono text-foreground">
+              {extractedText}
+            </pre>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-6 max-w-2xl mx-auto">
+          {/* File Info */}
+          <div className="file-item">
+            <div className="pdf-icon-box">
+              {file.type === "application/pdf" ? (
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                  <path d="M14 2v6h6" />
+                </svg>
+              ) : (
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+                  <circle cx="8.5" cy="8.5" r="1.5" />
+                  <polyline points="21 15 16 10 5 21" />
+                </svg>
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="font-bold truncate">{file.name}</p>
+              <p className="text-sm text-muted-foreground">
+                {file.type === "application/pdf" ? "PDF Document" : "Image"}
+              </p>
+            </div>
+            <button
+              onClick={handleClear}
+              className="text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Change file
+            </button>
+          </div>
+
+          {/* Language Selection */}
+          <div className="p-6 bg-card border-2 border-foreground space-y-4">
+            <label className="input-label">Language</label>
+            <div className="flex flex-wrap gap-2">
+              {languages.slice(0, 6).map((lang) => (
+                <button
+                  key={lang.code}
+                  onClick={() => setLanguage(lang.code)}
+                  className={`px-4 py-2 border-2 font-bold text-sm transition-all
+                    ${language === lang.code
+                      ? "bg-primary border-foreground text-white"
+                      : "bg-muted border-foreground hover:bg-accent"
+                    }
+                  `}
+                >
+                  {lang.name}
+                </button>
+              ))}
+            </div>
+            <details className="text-sm">
+              <summary className="cursor-pointer text-muted-foreground font-semibold hover:text-foreground transition-colors">
+                More languages...
+              </summary>
+              <div className="flex flex-wrap gap-2 mt-3">
+                {languages.slice(6).map((lang) => (
+                  <button
+                    key={lang.code}
+                    onClick={() => setLanguage(lang.code)}
+                    className={`px-4 py-2 border-2 font-bold text-sm transition-all
+                      ${language === lang.code
+                        ? "bg-primary border-foreground text-white"
+                        : "bg-muted border-foreground hover:bg-accent"
+                      }
+                    `}
+                  >
+                    {lang.name}
+                  </button>
+                ))}
+              </div>
+            </details>
+          </div>
+
+          {/* Info Box */}
+          <div className="info-box">
+            <svg className="w-5 h-5 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="10" />
+              <path d="M12 16v-4" />
+              <path d="M12 8h.01" />
+            </svg>
+            <div className="text-sm space-y-1">
+              <p className="font-bold text-foreground">About OCR</p>
+              <ul className="list-disc list-inside text-muted-foreground space-y-0.5">
+                <li>Works best with clear, high-resolution images</li>
+                <li>Handwritten text may not be recognized accurately</li>
+                <li>First use may take longer while loading language data</li>
+              </ul>
+            </div>
+          </div>
+
+          {error && (
+            <div className="error-box animate-shake">
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="12" cy="12" r="10" />
+                <line x1="12" y1="8" x2="12" y2="12" />
+                <line x1="12" y1="16" x2="12.01" y2="16" />
+              </svg>
+              <span className="font-medium">{error}</span>
+            </div>
+          )}
+
+          {isProcessing && (
+            <div className="space-y-3">
+              <div className="progress-bar">
+                <div className="progress-bar-fill" style={{ width: `${progress}%` }} />
+              </div>
+              <div className="flex items-center justify-center gap-2 text-sm font-semibold text-muted-foreground">
+                <LoaderIcon className="w-4 h-4" />
+                <span>{statusText || "Processing..."} {progress}%</span>
+              </div>
+            </div>
+          )}
+
+          <button
+            onClick={handleExtract}
+            disabled={isProcessing}
+            className="btn-primary w-full"
+          >
+            {isProcessing ? (
+              <>
+                <LoaderIcon className="w-5 h-5" />
+                Extracting Text...
+              </>
+            ) : (
+              <>
+                <OcrIcon className="w-5 h-5" />
+                Extract Text
+              </>
+            )}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
