@@ -4,6 +4,26 @@
 
 No uploads. No servers. No tracking. Your files never leave your device.
 
+---
+
+## Why I Built This
+
+I've always been frustrated with online PDF tools. Services like ilovepdf are great, but they require you to upload your files to their servers. For sensitive documents, that's a dealbreaker.
+
+The thing is—most of what these tools do can be done entirely in the browser. Merging PDFs, rotating pages, adding watermarks... none of this needs a server.
+
+So I looked for client-side alternatives. They exist, but honestly? They felt half-baked. Hastily thrown together with clunky interfaces that made me not want to use them, even though the privacy concept was solid. The UX wasn't thought through. It felt like proof-of-concepts rather than actual tools.
+
+So I built my own.
+
+PDF0 is designed to be a real, production-ready alternative to ilovepdf—with a clean interface that doesn't feel like an afterthought. It handles most common PDF operations completely offline in your browser.
+
+**One caveat:** Compression isn't as aggressive as server-side tools. That's because true PDF compression requires re-encoding images and fonts, which needs heavy native libraries that don't run well in browsers. PDF0's compression removes metadata and optimizes structure, but don't expect 90% size reductions on image-heavy PDFs.
+
+I'd love for people to use this, break it, and contribute. PRs are welcome.
+
+---
+
 ## Features
 
 | Tool | Description |
@@ -11,7 +31,7 @@ No uploads. No servers. No tracking. Your files never leave your device.
 | **Organize** | Drag & drop to reorder, add, or delete pages |
 | **Merge** | Combine multiple PDFs into one |
 | **Split** | Extract pages or divide into multiple files |
-| **Compress** | Reduce file size while keeping quality |
+| **Compress** | Reduce file size (metadata removal, structure optimization) |
 | **Rotate** | Rotate pages in any direction |
 | **Watermark** | Add text watermarks to documents |
 | **Page Numbers** | Add page numbers to your PDF |
@@ -19,13 +39,6 @@ No uploads. No servers. No tracking. Your files never leave your device.
 | **OCR** | Extract text from scanned documents |
 | **PDF → Images** | Convert pages to JPG or PNG |
 | **Images → PDF** | Create a PDF from images |
-
-## Why LocalPDF?
-
-- **Privacy First** — All processing happens in your browser using WebAssembly and JavaScript. We literally can't see your files.
-- **No Upload Wait** — Processing starts instantly. No waiting for uploads/downloads.
-- **Works Offline** — Once loaded, works without internet.
-- **Free Forever** — No accounts, no subscriptions, no limits.
 
 ## Tech Stack
 
@@ -74,7 +87,7 @@ MIT — see [LICENSE](LICENSE)
 
 ## Acknowledgments
 
-Built with these amazing open source libraries:
+Built with these open source libraries:
 - [pdf-lib](https://github.com/Hopding/pdf-lib)
 - [PDF.js](https://github.com/nicolo-ribaudo/pdfjs-dist)
 - [Tesseract.js](https://github.com/naptha/tesseract.js)
