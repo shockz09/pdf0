@@ -1,4 +1,4 @@
-# Contributing to PDF0
+# Contributing to noupload/pdf
 
 Thanks for your interest in contributing!
 
