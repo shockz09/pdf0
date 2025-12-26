@@ -6,21 +6,13 @@ No uploads. No servers. No tracking. Your files never leave your device.
 
 ---
 
-## Why I Built This
+## Why I Made This
 
-I've always been frustrated with online PDF tools. Services like ilovepdf are great, but they require you to upload your files to their servers. For sensitive documents, that's a dealbreaker.
+I saw many other similar client-side PDF tools which wanted to serve as a privacy-first alternative to ilovepdf etc, cuz most of the stuff that ilovepdf does can be done client-side and it should be. But the other tools which did this client-side were hastily built and their design and UX weren't thought through properly—it felt weird to use them even though they came up with the concept first.
 
-The thing is—most of what these tools do can be done entirely in the browser. Merging PDFs, rotating pages, adding watermarks... none of this needs a server.
+So I made my own with better design and UX which could actually be used in production as an alternative to ilovepdf for most of the functions, except some. Compression isn't the best because true PDF compression requires re-encoding images and fonts with native libraries that don't run well in browsers—so don't expect massive size reductions on image-heavy PDFs.
 
-So I looked for client-side alternatives. They exist, but honestly? They felt half-baked. Hastily thrown together with clunky interfaces that made me not want to use them, even though the privacy concept was solid. The UX wasn't thought through. It felt like proof-of-concepts rather than actual tools.
-
-So I built my own.
-
-PDF0 is designed to be a real, production-ready alternative to ilovepdf—with a clean interface that doesn't feel like an afterthought. It handles most common PDF operations completely offline in your browser.
-
-**One caveat:** Compression isn't as aggressive as server-side tools. That's because true PDF compression requires re-encoding images and fonts, which needs heavy native libraries that don't run well in browsers. PDF0's compression removes metadata and optimizes structure, but don't expect 90% size reductions on image-heavy PDFs.
-
-I'd love for people to use this, break it, and contribute. PRs are welcome.
+I would love if people would contribute and use this.
 
 ---
 
