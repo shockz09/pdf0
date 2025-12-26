@@ -5,15 +5,21 @@ import Link from "next/link";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import Tesseract from "tesseract.js";
 import { pdfToImages } from "@/lib/pdf-image-utils";
+import { createSearchablePDF } from "@/lib/ocr-utils";
+import { downloadBlob } from "@/lib/pdf-utils";
 import { ArrowLeftIcon, OcrIcon, DownloadIcon, LoaderIcon } from "@/components/icons";
+
+type OCRMode = "searchable" | "extract";
 
 export default function OcrPage() {
   const [file, setFile] = useState<File | null>(null);
+  const [mode, setMode] = useState<OCRMode>("searchable");
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [statusText, setStatusText] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [extractedText, setExtractedText] = useState<string>("");
+  const [searchablePdf, setSearchablePdf] = useState<Uint8Array | null>(null);
   const [language, setLanguage] = useState("eng");
   const [copied, setCopied] = useState(false);
 
@@ -37,6 +43,7 @@ export default function OcrPage() {
       setFile(files[0]);
       setError(null);
       setExtractedText("");
+      setSearchablePdf(null);
     }
   }, []);
 
@@ -44,58 +51,73 @@ export default function OcrPage() {
     setFile(null);
     setError(null);
     setExtractedText("");
+    setSearchablePdf(null);
   }, []);
 
-  const handleExtract = async () => {
+  const handleProcess = async () => {
     if (!file) return;
 
     setIsProcessing(true);
     setProgress(0);
     setError(null);
     setExtractedText("");
+    setSearchablePdf(null);
 
     try {
-      let imagesToProcess: Blob[] = [];
-
-      if (file.type === "application/pdf") {
-        setStatusText("Converting PDF pages to images...");
-        const images = await pdfToImages(file, {
-          scale: 2,
-          onProgress: (current, total) => {
-            setProgress(Math.round((current / total) * 30));
+      if (mode === "searchable") {
+        // Create searchable PDF
+        const pdfData = await createSearchablePDF(file, {
+          language,
+          onProgress: (percent, status) => {
+            setProgress(percent);
+            setStatusText(status);
           },
         });
-        imagesToProcess = images.map((i) => i.blob);
+        setSearchablePdf(pdfData);
       } else {
-        imagesToProcess = [file];
-      }
+        // Extract text only (existing logic)
+        let imagesToProcess: Blob[] = [];
 
-      setStatusText("Extracting text with OCR...");
-
-      const allText: string[] = [];
-
-      for (let i = 0; i < imagesToProcess.length; i++) {
-        const result = await Tesseract.recognize(imagesToProcess[i], language, {
-          logger: (m) => {
-            if (m.status === "recognizing text") {
-              const pageProgress = m.progress * 100;
-              const overallProgress = 30 + ((i + pageProgress / 100) / imagesToProcess.length) * 70;
-              setProgress(Math.round(overallProgress));
-            }
-          },
-        });
-
-        if (imagesToProcess.length > 1) {
-          allText.push(`--- Page ${i + 1} ---\n${result.data.text}`);
+        if (file.type === "application/pdf") {
+          setStatusText("Converting PDF pages to images...");
+          const images = await pdfToImages(file, {
+            scale: 2,
+            onProgress: (current, total) => {
+              setProgress(Math.round((current / total) * 30));
+            },
+          });
+          imagesToProcess = images.map((i) => i.blob);
         } else {
-          allText.push(result.data.text);
+          imagesToProcess = [file];
         }
-      }
 
-      setExtractedText(allText.join("\n\n"));
+        setStatusText("Extracting text with OCR...");
+
+        const allText: string[] = [];
+
+        for (let i = 0; i < imagesToProcess.length; i++) {
+          const result = await Tesseract.recognize(imagesToProcess[i], language, {
+            logger: (m) => {
+              if (m.status === "recognizing text") {
+                const pageProgress = m.progress * 100;
+                const overallProgress = 30 + ((i + pageProgress / 100) / imagesToProcess.length) * 70;
+                setProgress(Math.round(overallProgress));
+              }
+            },
+          });
+
+          if (imagesToProcess.length > 1) {
+            allText.push(`--- Page ${i + 1} ---\n${result.data.text}`);
+          } else {
+            allText.push(result.data.text);
+          }
+        }
+
+        setExtractedText(allText.join("\n\n"));
+      }
       setProgress(100);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to extract text");
+      setError(err instanceof Error ? err.message : "OCR processing failed");
     } finally {
       setIsProcessing(false);
       setStatusText("");
@@ -120,12 +142,22 @@ export default function OcrPage() {
     URL.revokeObjectURL(url);
   };
 
+  const handleDownloadSearchablePdf = () => {
+    if (searchablePdf && file) {
+      const filename = file.name.replace(/\.[^.]+$/, "") + "_searchable.pdf";
+      downloadBlob(searchablePdf, filename);
+    }
+  };
+
   const handleStartOver = () => {
     setFile(null);
     setExtractedText("");
+    setSearchablePdf(null);
     setError(null);
     setProgress(0);
   };
+
+  const hasResult = extractedText || searchablePdf;
 
   return (
     <div className="page-enter max-w-4xl mx-auto space-y-8">
@@ -141,9 +173,9 @@ export default function OcrPage() {
             <OcrIcon className="w-7 h-7" />
           </div>
           <div>
-            <h1 className="text-4xl font-display">OCR - Extract Text</h1>
+            <h1 className="text-4xl font-display">OCR</h1>
             <p className="text-muted-foreground mt-1">
-              Extract text from scanned PDFs or images
+              Make scanned PDFs searchable or extract text
             </p>
           </div>
         </div>
@@ -160,41 +192,76 @@ export default function OcrPage() {
             subtitle="PDF, PNG, JPG, GIF, BMP, WebP"
           />
         </div>
-      ) : extractedText ? (
+      ) : hasResult ? (
         <div className="space-y-6">
-          {/* Results Header */}
-          <div className="flex flex-wrap items-center justify-between gap-4 p-4 bg-card border-2 border-foreground">
-            <span className="font-bold">Extracted Text</span>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleCopyText}
-                className={`px-4 py-2 border-2 border-foreground font-bold text-sm transition-all
-                  ${copied ? "bg-[#2D5A3D] text-white" : "bg-muted hover:bg-accent"}
-                `}
-              >
-                {copied ? "Copied!" : "Copy"}
-              </button>
-              <button
-                onClick={handleDownloadText}
-                className="px-4 py-2 bg-muted border-2 border-foreground font-bold text-sm hover:bg-accent transition-colors"
-              >
-                Download .txt
-              </button>
-              <button
-                onClick={handleStartOver}
-                className="px-4 py-2 text-muted-foreground font-semibold text-sm hover:text-foreground transition-colors"
-              >
-                Start Over
-              </button>
-            </div>
-          </div>
+          {searchablePdf ? (
+            /* Searchable PDF Result */
+            <div className="animate-fade-up max-w-2xl mx-auto">
+              <div className="success-card">
+                <div className="success-stamp">
+                  <span className="success-stamp-text">Searchable</span>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <polyline points="20 6 9 17 4 12" />
+                  </svg>
+                </div>
 
-          {/* Text Output */}
-          <div className="border-2 border-foreground bg-white p-6 max-h-[500px] overflow-y-auto">
-            <pre className="whitespace-pre-wrap text-sm font-mono text-foreground">
-              {extractedText}
-            </pre>
-          </div>
+                <div className="space-y-2 mb-8">
+                  <h2 className="text-3xl font-display">PDF is now searchable!</h2>
+                  <p className="text-muted-foreground">
+                    Text is now selectable and searchable in PDF viewers
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    File size: {(searchablePdf.length / 1024 / 1024).toFixed(2)} MB
+                  </p>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-4">
+                  <button onClick={handleDownloadSearchablePdf} className="btn-success flex-1">
+                    <DownloadIcon className="w-5 h-5" />
+                    Download PDF
+                  </button>
+                  <button onClick={handleStartOver} className="btn-secondary flex-1">
+                    Process Another File
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            /* Text Extraction Result */
+            <>
+              <div className="flex flex-wrap items-center justify-between gap-4 p-4 bg-card border-2 border-foreground">
+                <span className="font-bold">Extracted Text</span>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleCopyText}
+                    className={`px-4 py-2 border-2 border-foreground font-bold text-sm transition-all
+                      ${copied ? "bg-[#2D5A3D] text-white" : "bg-muted hover:bg-accent"}
+                    `}
+                  >
+                    {copied ? "Copied!" : "Copy"}
+                  </button>
+                  <button
+                    onClick={handleDownloadText}
+                    className="px-4 py-2 bg-muted border-2 border-foreground font-bold text-sm hover:bg-accent transition-colors"
+                  >
+                    Download .txt
+                  </button>
+                  <button
+                    onClick={handleStartOver}
+                    className="px-4 py-2 text-muted-foreground font-semibold text-sm hover:text-foreground transition-colors"
+                  >
+                    Start Over
+                  </button>
+                </div>
+              </div>
+
+              <div className="border-2 border-foreground bg-white p-6 max-h-[500px] overflow-y-auto">
+                <pre className="whitespace-pre-wrap text-sm font-mono text-foreground">
+                  {extractedText}
+                </pre>
+              </div>
+            </>
+          )}
         </div>
       ) : (
         <div className="space-y-6 max-w-2xl mx-auto">
@@ -226,6 +293,41 @@ export default function OcrPage() {
             >
               Change file
             </button>
+          </div>
+
+          {/* Mode Selection */}
+          <div className="p-6 bg-card border-2 border-foreground space-y-3">
+            <label className="input-label">Output Mode</label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setMode("searchable")}
+                className={`flex-1 px-4 py-3 border-2 font-bold text-sm transition-all text-left
+                  ${mode === "searchable"
+                    ? "bg-primary border-foreground text-white"
+                    : "bg-muted border-foreground hover:bg-accent"
+                  }
+                `}
+              >
+                <div>Searchable PDF</div>
+                <div className={`text-xs font-normal mt-1 ${mode === "searchable" ? "text-white/80" : "text-muted-foreground"}`}>
+                  Makes text selectable in the PDF
+                </div>
+              </button>
+              <button
+                onClick={() => setMode("extract")}
+                className={`flex-1 px-4 py-3 border-2 font-bold text-sm transition-all text-left
+                  ${mode === "extract"
+                    ? "bg-primary border-foreground text-white"
+                    : "bg-muted border-foreground hover:bg-accent"
+                  }
+                `}
+              >
+                <div>Extract Text</div>
+                <div className={`text-xs font-normal mt-1 ${mode === "extract" ? "text-white/80" : "text-muted-foreground"}`}>
+                  Copy text to clipboard or .txt file
+                </div>
+              </button>
+            </div>
           </div>
 
           {/* Language Selection */}
@@ -280,8 +382,9 @@ export default function OcrPage() {
             <div className="text-sm space-y-1">
               <p className="font-bold text-foreground">About OCR</p>
               <ul className="list-disc list-inside text-muted-foreground space-y-0.5">
-                <li>Works best with clear, high-resolution images</li>
-                <li>Handwritten text may not be recognized accurately</li>
+                <li>Works best with clear, high-resolution scans</li>
+                <li>Searchable PDF keeps the original look but adds selectable text</li>
+                <li>Processing takes ~5-10 seconds per page</li>
                 <li>First use may take longer while loading language data</li>
               </ul>
             </div>
@@ -311,14 +414,19 @@ export default function OcrPage() {
           )}
 
           <button
-            onClick={handleExtract}
+            onClick={handleProcess}
             disabled={isProcessing}
             className="btn-primary w-full"
           >
             {isProcessing ? (
               <>
                 <LoaderIcon className="w-5 h-5" />
-                Extracting Text...
+                Processing...
+              </>
+            ) : mode === "searchable" ? (
+              <>
+                <OcrIcon className="w-5 h-5" />
+                Create Searchable PDF
               </>
             ) : (
               <>
