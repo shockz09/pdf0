@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import Link from "next/link";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import { pdfToImages, downloadImagesAsZip, downloadImage, ConvertedImage } from "@/lib/pdf-image-utils";
@@ -11,28 +11,43 @@ export default function PdfToImagesPage() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [format, setFormat] = useState<"png" | "jpeg">("png");
+  const [format, setFormat] = useState<"png" | "jpeg">("jpeg"); // Default to JPEG (faster)
   const [quality, setQuality] = useState<"low" | "medium" | "high">("medium");
   const [images, setImages] = useState<ConvertedImage[]>([]);
 
+  // Cleanup blob URLs on unmount
+  useEffect(() => {
+    return () => {
+      images.forEach((img) => URL.revokeObjectURL(img.dataUrl));
+    };
+  }, [images]);
+
+  // Helper to cleanup images
+  const cleanupImages = useCallback(() => {
+    images.forEach((img) => URL.revokeObjectURL(img.dataUrl));
+  }, [images]);
+
   const handleFileSelected = useCallback((files: File[]) => {
     if (files.length > 0) {
+      cleanupImages();
       setFile(files[0]);
       setError(null);
       setImages([]);
     }
-  }, []);
+  }, [cleanupImages]);
 
   const handleClear = useCallback(() => {
+    cleanupImages();
     setFile(null);
     setError(null);
     setImages([]);
-  }, []);
+  }, [cleanupImages]);
 
+  // Optimized quality settings (lower scale = faster on mobile)
   const qualitySettings = {
-    low: { scale: 1, jpegQuality: 0.7 },
-    medium: { scale: 2, jpegQuality: 0.85 },
-    high: { scale: 3, jpegQuality: 0.95 },
+    low: { scale: 1, jpegQuality: 0.7 },      // Fast, smaller files
+    medium: { scale: 1.5, jpegQuality: 0.85 }, // Balanced (was 2)
+    high: { scale: 2, jpegQuality: 0.92 },     // High quality (was 3)
   };
 
   const handleConvert = async () => {
@@ -78,6 +93,7 @@ export default function PdfToImagesPage() {
   };
 
   const handleStartOver = () => {
+    cleanupImages();
     setFile(null);
     setImages([]);
     setError(null);

@@ -6,54 +6,106 @@ export interface ConvertedImage {
   blob: Blob;
 }
 
+// Detect if device is low-end (mobile or low memory)
+function isLowEndDevice(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  // @ts-ignore - deviceMemory not in all browsers
+  const lowMemory = navigator.deviceMemory && navigator.deviceMemory < 4;
+  return isMobile || lowMemory;
+}
+
+// Process pages in parallel with concurrency limit
+async function processInParallel<T, R>(
+  items: T[],
+  processor: (item: T, index: number) => Promise<R>,
+  concurrency: number,
+  onProgress?: (completed: number, total: number) => void
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let completed = 0;
+  let currentIndex = 0;
+
+  async function processNext(): Promise<void> {
+    while (currentIndex < items.length) {
+      const index = currentIndex++;
+      results[index] = await processor(items[index], index);
+      completed++;
+      onProgress?.(completed, items.length);
+    }
+  }
+
+  // Start concurrent workers
+  const workers = Array(Math.min(concurrency, items.length))
+    .fill(null)
+    .map(() => processNext());
+
+  await Promise.all(workers);
+  return results;
+}
+
 export async function pdfToImages(
   file: File,
   options: {
     format?: "png" | "jpeg";
-    quality?: number; // 0-1 for jpeg
-    scale?: number; // 1 = 72 DPI, 2 = 144 DPI, etc.
+    quality?: number;
+    scale?: number;
     onProgress?: (current: number, total: number) => void;
   } = {}
 ): Promise<ConvertedImage[]> {
-  const { format = "png", quality = 0.92, scale = 2, onProgress } = options;
+  const isLowEnd = isLowEndDevice();
 
-  // Dynamically import pdf.js only on client side
+  // Auto-adjust scale for low-end devices
+  const defaultScale = isLowEnd ? 1.5 : 2;
+  const { format = "png", quality = 0.92, scale = defaultScale, onProgress } = options;
+
+  // Concurrency: 2 for low-end, 4 for high-end
+  const concurrency = isLowEnd ? 2 : 4;
+
   const pdfjsLib = await import("pdfjs-dist");
   pdfjsLib.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
 
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
   const totalPages = pdf.numPages;
-  const images: ConvertedImage[] = [];
+  const pageNumbers = Array.from({ length: totalPages }, (_, i) => i + 1);
 
-  for (let i = 1; i <= totalPages; i++) {
-    const page = await pdf.getPage(i);
-    const viewport = page.getViewport({ scale });
+  const mimeType = format === "png" ? "image/png" : "image/jpeg";
 
-    const canvas = document.createElement("canvas");
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
+  const images = await processInParallel(
+    pageNumbers,
+    async (pageNum) => {
+      const page = await pdf.getPage(pageNum);
+      const viewport = page.getViewport({ scale });
 
-    const context = canvas.getContext("2d")!;
-    await page.render({ canvasContext: context, viewport, canvas }).promise;
+      const canvas = document.createElement("canvas");
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
 
-    const mimeType = format === "png" ? "image/png" : "image/jpeg";
-    const dataUrl = canvas.toDataURL(mimeType, quality);
+      const context = canvas.getContext("2d")!;
+      await page.render({ canvasContext: context, viewport, canvas }).promise;
 
-    const blob = await new Promise<Blob>((resolve) => {
-      canvas.toBlob((b) => resolve(b!), mimeType, quality);
-    });
+      // Create blob first (needed for download)
+      const blob = await new Promise<Blob>((resolve) => {
+        canvas.toBlob((b) => resolve(b!), mimeType, quality);
+      });
 
-    images.push({
-      pageNumber: i,
-      dataUrl,
-      blob,
-    });
+      // Use blob URL for preview instead of dataUrl (much faster)
+      const dataUrl = URL.createObjectURL(blob);
 
-    if (onProgress) {
-      onProgress(i, totalPages);
-    }
-  }
+      // Clean up canvas to free memory
+      canvas.width = 0;
+      canvas.height = 0;
+
+      return {
+        pageNumber: pageNum,
+        dataUrl,
+        blob,
+      };
+    },
+    concurrency,
+    onProgress
+  );
 
   return images;
 }
