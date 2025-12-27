@@ -27,13 +27,22 @@ interface CreateSearchablePDFOptions {
  * The result looks identical to the original but has invisible text layer
  * that makes it selectable and searchable.
  */
+// Detect if device is high-end (can handle parallel OCR)
+function isHighEndDevice(): boolean {
+  if (typeof navigator === "undefined") return false;
+  // @ts-ignore - deviceMemory not in all browsers
+  const memory = navigator.deviceMemory || 4;
+  const cores = navigator.hardwareConcurrency || 2;
+  return memory >= 8 && cores >= 4;
+}
+
 export async function createSearchablePDF(
   file: File,
   options: CreateSearchablePDFOptions = {}
 ): Promise<Uint8Array> {
   const {
     language = "eng",
-    scale = 3, // Higher resolution for better OCR accuracy
+    scale = 2, // Scale 2 (144 DPI) is sufficient for printed text
     confidenceThreshold = 60,
     onProgress,
   } = options;
@@ -76,29 +85,62 @@ export async function createSearchablePDF(
   }
 
   // Stage 2: Run OCR on each page (25-75%)
-  // Create ONE worker and reuse it for all pages (loads language data only once)
   onProgress?.(25, "Loading OCR engine...");
-  const worker = await Tesseract.createWorker(language, 1);
 
-  const ocrResults: OCRPageResult[] = [];
+  const highEnd = isHighEndDevice();
+  const numWorkers = highEnd ? 2 : 1; // Parallel OCR on high-end devices
+
+  // Create worker pool
+  const workers = await Promise.all(
+    Array(numWorkers).fill(null).map(() => Tesseract.createWorker(language, 1))
+  );
+
+  const ocrResults: OCRPageResult[] = new Array(images.length);
+  let completed = 0;
 
   try {
-    for (let i = 0; i < images.length; i++) {
-      const progressBase = 25 + (i / images.length) * 50;
-      onProgress?.(Math.round(progressBase), `Running OCR on page ${i + 1} of ${images.length}...`);
+    if (numWorkers === 1) {
+      // Sequential processing for low-end devices
+      for (let i = 0; i < images.length; i++) {
+        const progressBase = 25 + (i / images.length) * 50;
+        onProgress?.(Math.round(progressBase), `Running OCR on page ${i + 1} of ${images.length}...`);
 
-      const words = await extractOCRWordsWithWorker(worker, images[i].blob);
+        const words = await extractOCRWordsWithWorker(workers[0], images[i].blob);
+        ocrResults[i] = {
+          pageNumber: i + 1,
+          words,
+          imageWidth: images[i].width,
+          imageHeight: images[i].height,
+        };
+      }
+    } else {
+      // Parallel processing for high-end devices
+      const processPage = async (pageIndex: number, workerIndex: number) => {
+        const words = await extractOCRWordsWithWorker(workers[workerIndex], images[pageIndex].blob);
+        ocrResults[pageIndex] = {
+          pageNumber: pageIndex + 1,
+          words,
+          imageWidth: images[pageIndex].width,
+          imageHeight: images[pageIndex].height,
+        };
+        completed++;
+        onProgress?.(Math.round(25 + (completed / images.length) * 50), `Running OCR on page ${completed} of ${images.length}...`);
+      };
 
-      ocrResults.push({
-        pageNumber: i + 1,
-        words,
-        imageWidth: images[i].width,
-        imageHeight: images[i].height,
-      });
+      // Process pages with worker pool
+      let currentPage = 0;
+      const runWorker = async (workerIndex: number) => {
+        while (currentPage < images.length) {
+          const pageIndex = currentPage++;
+          await processPage(pageIndex, workerIndex);
+        }
+      };
+
+      await Promise.all(workers.map((_, i) => runWorker(i)));
     }
   } finally {
-    // Always terminate worker when done
-    await worker.terminate();
+    // Always terminate all workers
+    await Promise.all(workers.map(w => w.terminate()));
   }
 
   // Stage 3: Create PDF with invisible text layer (75-100%)
