@@ -110,6 +110,13 @@ export async function pdfToImages(
   return images;
 }
 
+// Prepared image data for PDF embedding
+interface PreparedImage {
+  bytes: Uint8Array;
+  type: "png" | "jpeg";
+  index: number;
+}
+
 export async function imagesToPdf(
   files: File[],
   options: {
@@ -119,8 +126,8 @@ export async function imagesToPdf(
   } = {}
 ): Promise<Uint8Array> {
   const { pageSize = "a4", margin = 20, onProgress } = options;
-
-  const pdfDoc = await PDFDocument.create();
+  const isLowEnd = isLowEndDevice();
+  const concurrency = isLowEnd ? 2 : 4;
 
   // Page dimensions in points (72 points = 1 inch)
   const sizes = {
@@ -129,24 +136,45 @@ export async function imagesToPdf(
     fit: null as { width: number; height: number } | null,
   };
 
-  for (let i = 0; i < files.length; i++) {
-    const file = files[i];
-    const arrayBuffer = await file.arrayBuffer();
-    const bytes = new Uint8Array(arrayBuffer);
+  // Step 1: Prepare all images in parallel (load + convert)
+  const preparedImages = await processInParallel(
+    files.map((f, i) => ({ file: f, index: i })),
+    async ({ file, index }) => {
+      const fileType = file.type.toLowerCase();
+      let bytes: Uint8Array;
+      let type: "png" | "jpeg";
 
-    let image;
-    const fileType = file.type.toLowerCase();
+      if (fileType === "image/png") {
+        bytes = new Uint8Array(await file.arrayBuffer());
+        type = "png";
+      } else if (fileType === "image/jpeg" || fileType === "image/jpg") {
+        bytes = new Uint8Array(await file.arrayBuffer());
+        type = "jpeg";
+      } else {
+        // Convert other formats to JPEG
+        const dataUrl = await fileToDataUrl(file);
+        bytes = await dataUrlToJpegBytes(dataUrl);
+        type = "jpeg";
+      }
 
-    if (fileType === "image/png") {
-      image = await pdfDoc.embedPng(bytes);
-    } else if (fileType === "image/jpeg" || fileType === "image/jpg") {
-      image = await pdfDoc.embedJpg(bytes);
-    } else {
-      // Try to convert other formats using canvas
-      const dataUrl = await fileToDataUrl(file);
-      const convertedBytes = await dataUrlToJpegBytes(dataUrl);
-      image = await pdfDoc.embedJpg(convertedBytes);
-    }
+      return { bytes, type, index } as PreparedImage;
+    },
+    concurrency,
+    (completed, total) => onProgress?.(Math.round(completed * 0.5), total) // 0-50% progress
+  );
+
+  // Sort by original index to maintain order
+  preparedImages.sort((a, b) => a.index - b.index);
+
+  // Step 2: Build PDF sequentially (required for page order)
+  const pdfDoc = await PDFDocument.create();
+
+  for (let i = 0; i < preparedImages.length; i++) {
+    const { bytes, type } = preparedImages[i];
+
+    const image = type === "png"
+      ? await pdfDoc.embedPng(bytes)
+      : await pdfDoc.embedJpg(bytes);
 
     const imgWidth = image.width;
     const imgHeight = image.height;
@@ -155,7 +183,6 @@ export async function imagesToPdf(
     let pageHeight: number;
 
     if (pageSize === "fit") {
-      // Page size matches image size plus margins
       pageWidth = imgWidth + margin * 2;
       pageHeight = imgHeight + margin * 2;
     } else {
@@ -166,7 +193,6 @@ export async function imagesToPdf(
 
     const page = pdfDoc.addPage([pageWidth, pageHeight]);
 
-    // Calculate image dimensions to fit within page (with margins)
     const maxWidth = pageWidth - margin * 2;
     const maxHeight = pageHeight - margin * 2;
 
@@ -181,20 +207,12 @@ export async function imagesToPdf(
       drawHeight *= scale;
     }
 
-    // Center the image
     const x = (pageWidth - drawWidth) / 2;
     const y = (pageHeight - drawHeight) / 2;
 
-    page.drawImage(image, {
-      x,
-      y,
-      width: drawWidth,
-      height: drawHeight,
-    });
+    page.drawImage(image, { x, y, width: drawWidth, height: drawHeight });
 
-    if (onProgress) {
-      onProgress(i + 1, files.length);
-    }
+    onProgress?.(Math.round(50 + ((i + 1) / preparedImages.length) * 50), files.length); // 50-100%
   }
 
   return pdfDoc.save();
