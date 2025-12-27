@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { Header } from "@/components/header";
 
 export const metadata: Metadata = {
   title: "noupload/pdf — Private PDF Tools",
@@ -32,14 +33,7 @@ export default function RootLayout({
         <div className="paper-texture" />
 
         {/* Header */}
-        <header className="header-main sticky top-0 z-50">
-          <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
-            <a href="/" className="header-logo">
-              noupload/<span>pdf</span>
-            </a>
-
-          </div>
-        </header>
+        <Header />
 
         <main className="relative max-w-6xl mx-auto px-6 py-12">
           {children}
