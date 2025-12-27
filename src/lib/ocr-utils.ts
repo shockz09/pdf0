@@ -42,7 +42,7 @@ export async function createSearchablePDF(
 ): Promise<Uint8Array> {
   const {
     language = "eng",
-    scale = 2, // Scale 2 (144 DPI) is sufficient for printed text
+    scale = 3, // Scale 3 (216 DPI) for best quality
     confidenceThreshold = 60,
     onProgress,
   } = options;
@@ -55,8 +55,7 @@ export async function createSearchablePDF(
   if (file.type === "application/pdf") {
     const converted = await pdfToImages(file, {
       scale,
-      format: "jpeg",
-      quality: 0.95, // High quality needed for final PDF output
+      format: "png",
       onProgress: (current, total) => {
         const percent = Math.round((current / total) * 25);
         onProgress?.(percent, `Converting page ${current} of ${total}...`);
@@ -164,7 +163,7 @@ export async function createSearchablePDF(
 
     // Embed and draw the image as background
     const imageBytes = await blobToArrayBuffer(image.blob);
-    const pdfImage = await pdfDoc.embedJpg(imageBytes);
+    const pdfImage = await pdfDoc.embedPng(imageBytes);
 
     page.drawImage(pdfImage, {
       x: 0,
@@ -217,7 +216,7 @@ export async function createSearchablePDF(
         size: fontSize,
         font,
         color: rgb(0, 0, 0),
-        opacity: 0.001, // Nearly invisible
+        opacity: 0, // Completely invisible but still selectable
       });
     }
   }
