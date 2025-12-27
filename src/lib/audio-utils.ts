@@ -1,0 +1,331 @@
+// Audio processing utilities - all client-side using Web Audio API
+
+export interface AudioInfo {
+  duration: number;
+  sampleRate: number;
+  numberOfChannels: number;
+}
+
+// Load audio file into AudioBuffer
+export async function loadAudioFile(file: File): Promise<AudioBuffer> {
+  const arrayBuffer = await file.arrayBuffer();
+  const audioContext = new AudioContext();
+  const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+  await audioContext.close();
+  return audioBuffer;
+}
+
+// Get audio file info
+export async function getAudioInfo(file: File): Promise<AudioInfo> {
+  const buffer = await loadAudioFile(file);
+  return {
+    duration: buffer.duration,
+    sampleRate: buffer.sampleRate,
+    numberOfChannels: buffer.numberOfChannels,
+  };
+}
+
+// Convert AudioBuffer to WAV Blob
+export function audioBufferToWav(buffer: AudioBuffer): Blob {
+  const numOfChan = buffer.numberOfChannels;
+  const length = buffer.length * numOfChan * 2;
+  const bufferOut = new ArrayBuffer(44 + length);
+  const view = new DataView(bufferOut);
+  const channels: Float32Array[] = [];
+  let offset = 0;
+  let pos = 0;
+
+  // Write WAV header
+  const setUint16 = (data: number) => {
+    view.setUint16(pos, data, true);
+    pos += 2;
+  };
+  const setUint32 = (data: number) => {
+    view.setUint32(pos, data, true);
+    pos += 4;
+  };
+
+  // RIFF chunk descriptor
+  setUint32(0x46464952); // "RIFF"
+  setUint32(36 + length); // file length - 8
+  setUint32(0x45564157); // "WAVE"
+
+  // fmt sub-chunk
+  setUint32(0x20746d66); // "fmt "
+  setUint32(16); // subchunk1 size (16 for PCM)
+  setUint16(1); // audio format (1 for PCM)
+  setUint16(numOfChan);
+  setUint32(buffer.sampleRate);
+  setUint32(buffer.sampleRate * numOfChan * 2); // byte rate
+  setUint16(numOfChan * 2); // block align
+  setUint16(16); // bits per sample
+
+  // data sub-chunk
+  setUint32(0x61746164); // "data"
+  setUint32(length);
+
+  // Write audio data
+  for (let i = 0; i < numOfChan; i++) {
+    channels.push(buffer.getChannelData(i));
+  }
+
+  while (offset < buffer.length) {
+    for (let i = 0; i < numOfChan; i++) {
+      let sample = channels[i][offset];
+      sample = Math.max(-1, Math.min(1, sample));
+      sample = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+      view.setInt16(pos, sample, true);
+      pos += 2;
+    }
+    offset++;
+  }
+
+  return new Blob([bufferOut], { type: "audio/wav" });
+}
+
+// Trim audio
+export async function trimAudio(
+  file: File,
+  startTime: number,
+  endTime: number
+): Promise<Blob> {
+  const buffer = await loadAudioFile(file);
+  const sampleRate = buffer.sampleRate;
+  const startSample = Math.floor(startTime * sampleRate);
+  const endSample = Math.floor(endTime * sampleRate);
+  const newLength = endSample - startSample;
+
+  const audioContext = new AudioContext();
+  const newBuffer = audioContext.createBuffer(
+    buffer.numberOfChannels,
+    newLength,
+    sampleRate
+  );
+
+  for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+    const oldData = buffer.getChannelData(channel);
+    const newData = newBuffer.getChannelData(channel);
+    for (let i = 0; i < newLength; i++) {
+      newData[i] = oldData[startSample + i];
+    }
+  }
+
+  await audioContext.close();
+  return audioBufferToWav(newBuffer);
+}
+
+// Adjust volume
+export async function adjustVolume(file: File, volumeMultiplier: number): Promise<Blob> {
+  const buffer = await loadAudioFile(file);
+  const audioContext = new AudioContext();
+  const newBuffer = audioContext.createBuffer(
+    buffer.numberOfChannels,
+    buffer.length,
+    buffer.sampleRate
+  );
+
+  for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+    const oldData = buffer.getChannelData(channel);
+    const newData = newBuffer.getChannelData(channel);
+    for (let i = 0; i < buffer.length; i++) {
+      newData[i] = Math.max(-1, Math.min(1, oldData[i] * volumeMultiplier));
+    }
+  }
+
+  await audioContext.close();
+  return audioBufferToWav(newBuffer);
+}
+
+// Change speed (also changes pitch)
+export async function changeSpeed(file: File, speed: number): Promise<Blob> {
+  const buffer = await loadAudioFile(file);
+  const newLength = Math.floor(buffer.length / speed);
+  const audioContext = new AudioContext();
+  const newBuffer = audioContext.createBuffer(
+    buffer.numberOfChannels,
+    newLength,
+    buffer.sampleRate
+  );
+
+  for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+    const oldData = buffer.getChannelData(channel);
+    const newData = newBuffer.getChannelData(channel);
+    for (let i = 0; i < newLength; i++) {
+      const oldIndex = i * speed;
+      const index0 = Math.floor(oldIndex);
+      const index1 = Math.min(index0 + 1, buffer.length - 1);
+      const frac = oldIndex - index0;
+      // Linear interpolation
+      newData[i] = oldData[index0] * (1 - frac) + oldData[index1] * frac;
+    }
+  }
+
+  await audioContext.close();
+  return audioBufferToWav(newBuffer);
+}
+
+// Apply fade in/out
+export async function applyFade(
+  file: File,
+  fadeInDuration: number,
+  fadeOutDuration: number
+): Promise<Blob> {
+  const buffer = await loadAudioFile(file);
+  const sampleRate = buffer.sampleRate;
+  const fadeInSamples = Math.floor(fadeInDuration * sampleRate);
+  const fadeOutSamples = Math.floor(fadeOutDuration * sampleRate);
+  const fadeOutStart = buffer.length - fadeOutSamples;
+
+  const audioContext = new AudioContext();
+  const newBuffer = audioContext.createBuffer(
+    buffer.numberOfChannels,
+    buffer.length,
+    buffer.sampleRate
+  );
+
+  for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+    const oldData = buffer.getChannelData(channel);
+    const newData = newBuffer.getChannelData(channel);
+
+    for (let i = 0; i < buffer.length; i++) {
+      let multiplier = 1;
+
+      // Fade in
+      if (i < fadeInSamples) {
+        multiplier = i / fadeInSamples;
+      }
+      // Fade out
+      else if (i >= fadeOutStart) {
+        multiplier = (buffer.length - i) / fadeOutSamples;
+      }
+
+      newData[i] = oldData[i] * multiplier;
+    }
+  }
+
+  await audioContext.close();
+  return audioBufferToWav(newBuffer);
+}
+
+// Reverse audio
+export async function reverseAudio(file: File): Promise<Blob> {
+  const buffer = await loadAudioFile(file);
+  const audioContext = new AudioContext();
+  const newBuffer = audioContext.createBuffer(
+    buffer.numberOfChannels,
+    buffer.length,
+    buffer.sampleRate
+  );
+
+  for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+    const oldData = buffer.getChannelData(channel);
+    const newData = newBuffer.getChannelData(channel);
+    for (let i = 0; i < buffer.length; i++) {
+      newData[i] = oldData[buffer.length - 1 - i];
+    }
+  }
+
+  await audioContext.close();
+  return audioBufferToWav(newBuffer);
+}
+
+// Generate waveform data for visualization
+export async function getWaveformData(
+  file: File,
+  samples: number = 200
+): Promise<number[]> {
+  const buffer = await loadAudioFile(file);
+  const channelData = buffer.getChannelData(0); // Use first channel
+  const blockSize = Math.floor(channelData.length / samples);
+  const waveform: number[] = [];
+
+  for (let i = 0; i < samples; i++) {
+    const start = i * blockSize;
+    let sum = 0;
+    for (let j = 0; j < blockSize; j++) {
+      sum += Math.abs(channelData[start + j]);
+    }
+    waveform.push(sum / blockSize);
+  }
+
+  // Normalize to 0-1 range
+  const max = Math.max(...waveform);
+  return waveform.map((v) => v / max);
+}
+
+// Draw waveform to canvas and return as blob
+export async function generateWaveformImage(
+  file: File,
+  width: number = 800,
+  height: number = 200,
+  color: string = "#C84C1C",
+  backgroundColor: string = "#FAF7F2"
+): Promise<Blob> {
+  const waveform = await getWaveformData(file, width);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+
+  const ctx = canvas.getContext("2d")!;
+
+  // Background
+  ctx.fillStyle = backgroundColor;
+  ctx.fillRect(0, 0, width, height);
+
+  // Draw waveform
+  ctx.fillStyle = color;
+  const centerY = height / 2;
+  const maxHeight = height * 0.8;
+
+  for (let i = 0; i < waveform.length; i++) {
+    const barHeight = waveform[i] * maxHeight;
+    ctx.fillRect(i, centerY - barHeight / 2, 1, barHeight);
+  }
+
+  return new Promise((resolve) => {
+    canvas.toBlob((blob) => resolve(blob!), "image/png");
+  });
+}
+
+// Format duration as MM:SS or HH:MM:SS
+export function formatDuration(seconds: number): string {
+  const hrs = Math.floor(seconds / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+
+  if (hrs > 0) {
+    return `${hrs}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+  }
+  return `${mins}:${secs.toString().padStart(2, "0")}`;
+}
+
+// Parse time string (MM:SS or HH:MM:SS) to seconds
+export function parseTimeString(time: string): number {
+  const parts = time.split(":").map(Number);
+  if (parts.length === 3) {
+    return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  }
+  return parts[0] * 60 + parts[1];
+}
+
+// Download audio blob
+export function downloadAudio(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// Format file size
+export function formatFileSize(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+}

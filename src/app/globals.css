@@ -411,6 +411,8 @@
 .tool-base64 { --tool-color: #0D9488; }
 .tool-favicon { --tool-color: #7C3AED; }
 .tool-bulk { --tool-color: #059669; }
+.tool-qr { --tool-color: #0891B2; }
+.tool-audio { --tool-color: #7C3AED; }
 
 /* Category tag */
 .category-tag {
