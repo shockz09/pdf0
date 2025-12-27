@@ -46,7 +46,8 @@ export async function createSearchablePDF(
   if (file.type === "application/pdf") {
     const converted = await pdfToImages(file, {
       scale,
-      format: "png",
+      format: "jpeg", // JPEG is faster to encode, OCR doesn't need lossless
+      quality: 0.85,
       onProgress: (current, total) => {
         const percent = Math.round((current / total) * 25);
         onProgress?.(percent, `Converting page ${current} of ${total}...`);
@@ -121,7 +122,7 @@ export async function createSearchablePDF(
 
     // Embed and draw the image as background
     const imageBytes = await blobToArrayBuffer(image.blob);
-    const pdfImage = await pdfDoc.embedPng(imageBytes);
+    const pdfImage = await pdfDoc.embedJpg(imageBytes);
 
     page.drawImage(pdfImage, {
       x: 0,
