@@ -31,6 +31,7 @@ export default function OrganizePage() {
   // Drag state
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [settledIndex, setSettledIndex] = useState<number | null>(null);
 
   const { pages, loading, progress } = usePdfPages(file, 0.5);
 
@@ -96,6 +97,10 @@ export default function OrganizePage() {
     setPageItems(newItems);
     setDraggedIndex(null);
     setDragOverIndex(null);
+
+    // Trigger settle animation
+    setSettledIndex(dropIndex);
+    setTimeout(() => setSettledIndex(null), 300);
   };
 
   const handleDragEnd = () => {
@@ -291,10 +296,11 @@ export default function OrganizePage() {
                   onClick={() => togglePageSelection(item.id)}
                   className={`
                     relative group cursor-grab active:cursor-grabbing
-                    transition-all duration-200
-                    ${draggedIndex === index ? "opacity-50 scale-95" : ""}
-                    ${dragOverIndex === index ? "ring-4 ring-primary ring-offset-2" : ""}
+                    ${draggedIndex === index ? "drag-lifting" : ""}
+                    ${dragOverIndex === index && draggedIndex !== index ? "drag-over-target" : ""}
+                    ${settledIndex === index ? "drag-settled" : ""}
                     ${selectedPages.has(item.id) ? "ring-4 ring-destructive ring-offset-2" : ""}
+                    ${draggedIndex !== null && draggedIndex !== index ? "drag-shifting" : ""}
                   `}
                 >
                   {/* Page container */}

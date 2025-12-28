@@ -103,7 +103,7 @@ export function FileDropzone({
     <div
       className={cn(
         "dropzone relative cursor-pointer",
-        isDragging && "dragging",
+        isDragging && "dragging dropzone-active",
         className
       )}
       onDragOver={handleDragOver}

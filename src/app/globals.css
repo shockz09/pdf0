@@ -1065,3 +1065,102 @@
   border-radius: 50%;
   animation: pulse-ring-brutal 2s infinite;
 }
+
+/* ============================================
+   DRAG AND DROP - Paper Office Aesthetic
+   ============================================ */
+
+/* Keyframes */
+@keyframes drag-settle {
+  0% { transform: scale(1.05) rotate(0deg); }
+  50% { transform: scale(0.98) rotate(-0.5deg); }
+  100% { transform: scale(1) rotate(0deg); }
+}
+
+@keyframes border-march {
+  to { background-position: 24px 0; }
+}
+
+@keyframes drag-wobble {
+  0%, 100% { transform: scale(1.04) rotate(1.5deg); }
+  50% { transform: scale(1.04) rotate(-1deg); }
+}
+
+@keyframes icon-lift {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+/* Item being dragged - "lifted paper" effect */
+.drag-lifting {
+  transform: scale(1.04) rotate(1.5deg) !important;
+  box-shadow: 6px 6px 0 0 #1A1612 !important;
+  z-index: 100;
+  cursor: grabbing !important;
+  opacity: 1 !important;
+  transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1),
+              box-shadow 0.15s ease;
+}
+
+/* Drop target indicator with marching ants */
+.drag-over-target {
+  background: #FFF0D4 !important;
+  position: relative;
+}
+
+.drag-over-target::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border: 3px dashed #C84C1C;
+  pointer-events: none;
+  background: transparent;
+}
+
+/* Item settling after drop */
+.drag-settled {
+  animation: drag-settle 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Other items shifting smoothly */
+.drag-shifting {
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* Drag handle cursor states */
+.drag-handle {
+  cursor: grab;
+}
+
+.drag-handle:active,
+.drag-lifting .drag-handle {
+  cursor: grabbing;
+}
+
+/* Dropzone enhanced drag-over state */
+.dropzone-active {
+  border-style: solid !important;
+  border-color: #C84C1C !important;
+  background: #FFF0D4 !important;
+}
+
+.dropzone-active .upload-icon {
+  animation: icon-lift 0.6s ease-in-out infinite;
+  box-shadow: 0 8px 0 0 #1A1612;
+}
+
+.dropzone-active::after {
+  width: 60px !important;
+  height: 60px !important;
+  background: linear-gradient(135deg, transparent 50%, #C84C1C 50%) !important;
+  border-color: #C84C1C !important;
+}
+
+/* Gap indicator for list reordering */
+.drag-gap-indicator {
+  height: 4px;
+  background: #C84C1C;
+  margin: -2px 0;
+  border-radius: 2px;
+  transition: all 0.15s ease;
+}

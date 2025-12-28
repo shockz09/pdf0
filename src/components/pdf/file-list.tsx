@@ -25,6 +25,7 @@ function formatFileSize(bytes: number): string {
 export function FileList({ files, onRemove, onReorder, onClear }: FileListProps) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverId, setDragOverId] = useState<string | null>(null);
+  const [settledId, setSettledId] = useState<string | null>(null);
 
   if (files.length === 0) return null;
 
@@ -51,11 +52,14 @@ export function FileList({ files, onRemove, onReorder, onClear }: FileListProps)
     setDragOverId(null);
   };
 
-  const handleDrop = (e: React.DragEvent, toIndex: number) => {
+  const handleDrop = (e: React.DragEvent, toIndex: number, targetId: string) => {
     e.preventDefault();
     const fromIndex = parseInt(e.dataTransfer.getData("text/plain"), 10);
     if (onReorder && fromIndex !== toIndex) {
       onReorder(fromIndex, toIndex);
+      // Trigger settle animation on the target position
+      setSettledId(targetId);
+      setTimeout(() => setSettledId(null), 300);
     }
     setDraggingId(null);
     setDragOverId(null);
@@ -88,15 +92,17 @@ export function FileList({ files, onRemove, onReorder, onClear }: FileListProps)
             key={item.id}
             className={cn(
               "file-item group",
-              draggingId === item.id && "dragging",
-              dragOverId === item.id && "border-primary"
+              draggingId === item.id && "drag-lifting",
+              dragOverId === item.id && draggingId !== item.id && "drag-over-target",
+              settledId === item.id && "drag-settled",
+              draggingId && draggingId !== item.id && "drag-shifting"
             )}
             draggable={!!onReorder}
             onDragStart={(e) => handleDragStart(e, item.id, index)}
             onDragEnd={handleDragEnd}
             onDragOver={(e) => handleDragOver(e, item.id)}
             onDragLeave={handleDragLeave}
-            onDrop={(e) => handleDrop(e, index)}
+            onDrop={(e) => handleDrop(e, index, item.id)}
           >
             {/* Drag Handle */}
             {onReorder && (
