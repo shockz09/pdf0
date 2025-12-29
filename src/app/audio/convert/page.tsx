@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
-import { convertAudioFormat, formatDuration, formatFileSize, getAudioInfo, downloadAudio, AudioFormat } from "@/lib/audio-utils";
+import { convertAudioFormat, formatDuration, formatFileSize, getAudioInfo, AudioFormat } from "@/lib/audio-utils";
 import { convertAudioFFmpeg, isFFmpegLoaded, ConvertOutputFormat } from "@/lib/ffmpeg-utils";
 import { AUDIO_BITRATES } from "@/lib/constants";
 import { ConvertIcon, DownloadIcon } from "@/components/icons";
@@ -13,7 +13,10 @@ import {
   ProcessButton,
   AudioFileInfo,
   AudioPageHeader,
+  SuccessCard,
 } from "@/components/audio/shared";
+import { AudioPlayer } from "@/components/audio/AudioPlayer";
+import { useAudioResult } from "@/hooks/useAudioResult";
 
 type OutputFormat = "mp3" | "wav" | "ogg" | "flac" | "aac" | "webm";
 
@@ -36,14 +39,14 @@ export default function AudioConvertPage() {
   const [processingState, setProcessingState] = useState<ProcessingState>("idle");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ blob: Blob; filename: string } | null>(null);
+  const { result, setResult, clearResult, download } = useAudioResult();
 
   const handleFileSelected = useCallback(async (files: File[]) => {
     if (files.length > 0) {
       const selectedFile = files[0];
       setFile(selectedFile);
       setError(null);
-      setResult(null);
+      clearResult();
 
       try {
         const info = await getAudioInfo(selectedFile);
@@ -52,7 +55,7 @@ export default function AudioConvertPage() {
         // Duration not critical
       }
     }
-  }, []);
+  }, [clearResult]);
 
   const handleConvert = async () => {
     if (!file) return;
@@ -78,7 +81,7 @@ export default function AudioConvertPage() {
       }
 
       const baseName = file.name.split(".").slice(0, -1).join(".");
-      setResult({ blob, filename: `${baseName}.${outputFormat}` });
+      setResult(blob, `${baseName}.${outputFormat}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Conversion failed");
     } finally {
@@ -86,15 +89,9 @@ export default function AudioConvertPage() {
     }
   };
 
-  const handleDownload = () => {
-    if (result) {
-      downloadAudio(result.blob, result.filename);
-    }
-  };
-
   const handleStartOver = () => {
+    clearResult();
     setFile(null);
-    setResult(null);
     setError(null);
     setProgress(0);
   };
@@ -146,7 +143,9 @@ export default function AudioConvertPage() {
               </div>
             </div>
 
-            <button onClick={handleDownload} className="btn-success w-full mb-4">
+            <AudioPlayer src={result.url} />
+
+            <button onClick={download} className="btn-success w-full mb-4">
               <DownloadIcon className="w-5 h-5" />
               Download {outputFormat.toUpperCase()}
             </button>

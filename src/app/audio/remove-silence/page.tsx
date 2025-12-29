@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import { removeSilence, isFFmpegLoaded, SilenceMode } from "@/lib/ffmpeg-utils";
-import { formatFileSize, getAudioInfo, downloadAudio } from "@/lib/audio-utils";
+import { formatFileSize, getAudioInfo } from "@/lib/audio-utils";
 import { SilenceIcon } from "@/components/icons";
+import { useInstantMode } from "@/components/shared/InstantModeToggle";
 import {
   FFmpegNotice,
   ProgressBar,
@@ -14,6 +15,8 @@ import {
   AudioFileInfo,
   AudioPageHeader,
 } from "@/components/audio/shared";
+import { AudioPlayer } from "@/components/audio/AudioPlayer";
+import { useAudioResult } from "@/hooks/useAudioResult";
 
 const modes: { value: SilenceMode; label: string; desc: string }[] = [
   { value: "trim-ends", label: "Trim Ends", desc: "Remove silence at start and end only" },
@@ -35,35 +38,22 @@ const durations = [
 type ProcessingState = "idle" | "loading-ffmpeg" | "processing";
 
 export default function RemoveSilencePage() {
+  const { isInstant, isLoaded } = useInstantMode();
   const [file, setFile] = useState<File | null>(null);
   const [duration, setDuration] = useState(0);
   const [mode, setMode] = useState<SilenceMode>("trim-ends");
+  const [usedMode, setUsedMode] = useState<SilenceMode>("trim-ends");
   const [threshold, setThreshold] = useState(-50);
   const [minDuration, setMinDuration] = useState(0.5);
   const [processingState, setProcessingState] = useState<ProcessingState>("idle");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ blob: Blob; filename: string } | null>(null);
+  const { result, setResult, clearResult, download } = useAudioResult();
+  const processingRef = useRef(false);
 
-  const handleFileSelected = useCallback(async (files: File[]) => {
-    if (files.length > 0) {
-      const selectedFile = files[0];
-      setFile(selectedFile);
-      setError(null);
-      setResult(null);
-
-      try {
-        const info = await getAudioInfo(selectedFile);
-        setDuration(info.duration);
-      } catch {
-        // Duration not critical
-      }
-    }
-  }, []);
-
-  const handleProcess = async () => {
-    if (!file) return;
-
+  const processFile = useCallback(async (fileToProcess: File, silenceMode: SilenceMode, thresh: number, minDur: number) => {
+    if (processingRef.current) return;
+    processingRef.current = true;
     setError(null);
     setProgress(0);
 
@@ -74,32 +64,56 @@ export default function RemoveSilencePage() {
 
       setProcessingState("processing");
 
-      const blob = await removeSilence(file, mode, threshold, minDuration, (p) => setProgress(p));
+      const blob = await removeSilence(fileToProcess, silenceMode, thresh, minDur, (p) => setProgress(p));
 
-      const baseName = file.name.split(".").slice(0, -1).join(".");
-      setResult({ blob, filename: `${baseName}_trimmed.wav` });
+      const baseName = fileToProcess.name.split(".").slice(0, -1).join(".");
+      setResult(blob, `${baseName}_trimmed.wav`);
+      setUsedMode(silenceMode);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to remove silence");
     } finally {
       setProcessingState("idle");
+      processingRef.current = false;
     }
-  };
+  }, [setResult]);
 
-  const handleDownload = () => {
-    if (result) {
-      downloadAudio(result.blob, result.filename);
+  const handleFileSelected = useCallback(async (files: File[]) => {
+    if (files.length > 0) {
+      const selectedFile = files[0];
+      setFile(selectedFile);
+      setError(null);
+      clearResult();
+
+      try {
+        const info = await getAudioInfo(selectedFile);
+        setDuration(info.duration);
+      } catch {
+        // Duration not critical
+      }
+
+      if (isInstant) {
+        // Instant mode: remove-all with normal settings
+        processFile(selectedFile, "remove-all", -50, 0.5);
+      }
     }
+  }, [isInstant, processFile, clearResult]);
+
+  const handleProcess = async () => {
+    if (!file) return;
+    processFile(file, mode, threshold, minDuration);
   };
 
   const handleStartOver = () => {
+    clearResult();
     setFile(null);
-    setResult(null);
     setError(null);
     setProgress(0);
     setDuration(0);
   };
 
   const isProcessing = processingState !== "idle";
+
+  if (!isLoaded) return null;
 
   return (
     <div className="page-enter max-w-2xl mx-auto space-y-8">
@@ -114,12 +128,14 @@ export default function RemoveSilencePage() {
         <SuccessCard
           stampText="Trimmed"
           title="Silence Removed!"
-          subtitle={`${mode === "trim-ends" ? "Ends trimmed" : "All silence removed"} | ${formatFileSize(result.blob.size)}`}
+          subtitle={`${usedMode === "trim-ends" ? "Ends trimmed" : "All silence removed"} | ${formatFileSize(result.blob.size)}`}
           downloadLabel="Download Trimmed Audio"
-          onDownload={handleDownload}
+          onDownload={download}
           onStartOver={handleStartOver}
           startOverLabel="Process Another"
-        />
+        >
+          <AudioPlayer src={result.url} />
+        </SuccessCard>
       ) : !file ? (
         <FileDropzone
           accept=".mp3,.wav,.ogg,.m4a,.webm,.aac,.flac"

@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
-import { adjustVolume, downloadAudio, formatFileSize, getAudioInfo } from "@/lib/audio-utils";
+import { adjustVolume, formatFileSize, getAudioInfo } from "@/lib/audio-utils";
 import { VolumeIcon } from "@/components/icons";
 import {
   ErrorBox,
@@ -12,15 +12,17 @@ import {
   AudioPageHeader,
 } from "@/components/audio/shared";
 import { AudioPlayer } from "@/components/audio/AudioPlayer";
+import { useAudioResult } from "@/hooks/useAudioResult";
 
 export default function VolumeAudioPage() {
   const [file, setFile] = useState<File | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [duration, setDuration] = useState(0);
   const [volume, setVolume] = useState(100);
+  const [usedVolume, setUsedVolume] = useState(100);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<Blob | null>(null);
+  const { result, setResult, clearResult, download } = useAudioResult();
 
   useEffect(() => {
     return () => {
@@ -33,7 +35,7 @@ export default function VolumeAudioPage() {
       const selectedFile = files[0];
       setFile(selectedFile);
       setError(null);
-      setResult(null);
+      clearResult();
 
       try {
         const info = await getAudioInfo(selectedFile);
@@ -45,7 +47,7 @@ export default function VolumeAudioPage() {
         setError("Failed to load audio file.");
       }
     }
-  }, [audioUrl]);
+  }, [audioUrl, clearResult]);
 
   const handleProcess = async () => {
     if (!file) return;
@@ -54,7 +56,9 @@ export default function VolumeAudioPage() {
 
     try {
       const processed = await adjustVolume(file, volume / 100);
-      setResult(processed);
+      const baseName = file.name.split(".").slice(0, -1).join(".");
+      setResult(processed, `${baseName}_volume.wav`);
+      setUsedVolume(volume);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to adjust volume");
     } finally {
@@ -62,18 +66,11 @@ export default function VolumeAudioPage() {
     }
   };
 
-  const handleDownload = () => {
-    if (result && file) {
-      const baseName = file.name.split(".").slice(0, -1).join(".");
-      downloadAudio(result, `${baseName}_volume.wav`);
-    }
-  };
-
   const handleStartOver = () => {
     if (audioUrl) URL.revokeObjectURL(audioUrl);
+    clearResult();
     setFile(null);
     setAudioUrl(null);
-    setResult(null);
     setError(null);
     setVolume(100);
   };
@@ -91,12 +88,14 @@ export default function VolumeAudioPage() {
         <SuccessCard
           stampText="Done"
           title="Volume Adjusted!"
-          subtitle={`${volume}% volume • ${formatFileSize(result.size)}`}
+          subtitle={`${usedVolume}% volume • ${formatFileSize(result.blob.size)}`}
           downloadLabel="Download Audio"
-          onDownload={handleDownload}
+          onDownload={download}
           onStartOver={handleStartOver}
           startOverLabel="Process Another"
-        />
+        >
+          <AudioPlayer src={result.url} />
+        </SuccessCard>
       ) : !file ? (
         <FileDropzone
           accept=".mp3,.wav,.ogg,.m4a,.webm"

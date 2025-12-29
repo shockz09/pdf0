@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { downloadAudio, formatDuration, formatFileSize } from "@/lib/audio-utils";
 import { MicIcon, StopIcon, DownloadIcon } from "@/components/icons";
 import { ErrorBox, AudioPageHeader } from "@/components/audio/shared";
+import { AudioPlayer } from "@/components/audio/AudioPlayer";
 
 export default function RecordAudioPage() {
   const [isRecording, setIsRecording] = useState(false);
@@ -107,7 +108,9 @@ export default function RecordAudioPage() {
             </div>
 
             {audioUrl && (
-              <audio controls src={audioUrl} className="w-full mb-6" />
+              <div className="mb-6">
+                <AudioPlayer src={audioUrl} />
+              </div>
             )}
 
             <button onClick={handleDownload} className="btn-success w-full mb-4">

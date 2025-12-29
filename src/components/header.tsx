@@ -1,6 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import { InstantModeNavToggle } from "@/components/shared/InstantModeToggle";
 
 export function Header() {
   const pathname = usePathname();
@@ -20,6 +21,7 @@ export function Header() {
         <a href={section.href} className="header-logo">
           noupload/<span>{section.name}</span>
         </a>
+        <InstantModeNavToggle />
       </div>
     </header>
   );

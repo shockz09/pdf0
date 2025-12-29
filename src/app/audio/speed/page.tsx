@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
-import { changeSpeed, downloadAudio, formatDuration, formatFileSize, getAudioInfo } from "@/lib/audio-utils";
+import { changeSpeed, formatDuration, formatFileSize, getAudioInfo } from "@/lib/audio-utils";
 import { SpeedIcon } from "@/components/icons";
 import {
   ErrorBox,
@@ -12,6 +12,7 @@ import {
   AudioPageHeader,
 } from "@/components/audio/shared";
 import { AudioPlayer } from "@/components/audio/AudioPlayer";
+import { useAudioResult } from "@/hooks/useAudioResult";
 
 const speedPresets = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
@@ -20,9 +21,10 @@ export default function SpeedAudioPage() {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [duration, setDuration] = useState(0);
   const [speed, setSpeed] = useState(1);
+  const [usedSpeed, setUsedSpeed] = useState(1);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<Blob | null>(null);
+  const { result, setResult, clearResult, download } = useAudioResult();
 
   useEffect(() => {
     return () => {
@@ -35,7 +37,7 @@ export default function SpeedAudioPage() {
       const selectedFile = files[0];
       setFile(selectedFile);
       setError(null);
-      setResult(null);
+      clearResult();
 
       try {
         const info = await getAudioInfo(selectedFile);
@@ -47,7 +49,7 @@ export default function SpeedAudioPage() {
         setError("Failed to load audio file.");
       }
     }
-  }, [audioUrl]);
+  }, [audioUrl, clearResult]);
 
   const handleProcess = async () => {
     if (!file) return;
@@ -56,7 +58,9 @@ export default function SpeedAudioPage() {
 
     try {
       const processed = await changeSpeed(file, speed);
-      setResult(processed);
+      const baseName = file.name.split(".").slice(0, -1).join(".");
+      setResult(processed, `${baseName}_${speed}x.wav`);
+      setUsedSpeed(speed);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to change speed");
     } finally {
@@ -64,18 +68,11 @@ export default function SpeedAudioPage() {
     }
   };
 
-  const handleDownload = () => {
-    if (result && file) {
-      const baseName = file.name.split(".").slice(0, -1).join(".");
-      downloadAudio(result, `${baseName}_${speed}x.wav`);
-    }
-  };
-
   const handleStartOver = () => {
     if (audioUrl) URL.revokeObjectURL(audioUrl);
+    clearResult();
     setFile(null);
     setAudioUrl(null);
-    setResult(null);
     setError(null);
     setSpeed(1);
   };
@@ -95,12 +92,14 @@ export default function SpeedAudioPage() {
         <SuccessCard
           stampText="Done"
           title="Speed Changed!"
-          subtitle={`${speed}x speed • ${formatDuration(newDuration)} • ${formatFileSize(result.size)}`}
+          subtitle={`${usedSpeed}x speed • ${formatDuration(duration / usedSpeed)} • ${formatFileSize(result.blob.size)}`}
           downloadLabel="Download Audio"
-          onDownload={handleDownload}
+          onDownload={download}
           onStartOver={handleStartOver}
           startOverLabel="Process Another"
-        />
+        >
+          <AudioPlayer src={result.url} />
+        </SuccessCard>
       ) : !file ? (
         <FileDropzone
           accept=".mp3,.wav,.ogg,.m4a,.webm"

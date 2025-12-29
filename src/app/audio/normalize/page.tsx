@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import { normalizeAudio, isFFmpegLoaded, NormalizePreset } from "@/lib/ffmpeg-utils";
-import { formatFileSize, getAudioInfo, downloadAudio } from "@/lib/audio-utils";
+import { formatFileSize, getAudioInfo } from "@/lib/audio-utils";
 import { NormalizeIcon } from "@/components/icons";
+import { useInstantMode } from "@/components/shared/InstantModeToggle";
 import {
   FFmpegNotice,
   ProgressBar,
@@ -14,6 +15,8 @@ import {
   AudioFileInfo,
   AudioPageHeader,
 } from "@/components/audio/shared";
+import { AudioPlayer } from "@/components/audio/AudioPlayer";
+import { useAudioResult } from "@/hooks/useAudioResult";
 
 const presets: { value: NormalizePreset; label: string; desc: string; lufs: string }[] = [
   { value: "spotify", label: "Spotify", desc: "Music streaming", lufs: "-14 LUFS" },
@@ -25,33 +28,20 @@ const presets: { value: NormalizePreset; label: string; desc: string; lufs: stri
 type ProcessingState = "idle" | "loading-ffmpeg" | "normalizing";
 
 export default function NormalizeAudioPage() {
+  const { isInstant, isLoaded } = useInstantMode();
   const [file, setFile] = useState<File | null>(null);
   const [duration, setDuration] = useState(0);
   const [preset, setPreset] = useState<NormalizePreset>("podcast");
+  const [usedPreset, setUsedPreset] = useState<NormalizePreset>("podcast");
   const [processingState, setProcessingState] = useState<ProcessingState>("idle");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ blob: Blob; filename: string } | null>(null);
+  const { result, setResult, clearResult, download } = useAudioResult();
+  const processingRef = useRef(false);
 
-  const handleFileSelected = useCallback(async (files: File[]) => {
-    if (files.length > 0) {
-      const selectedFile = files[0];
-      setFile(selectedFile);
-      setError(null);
-      setResult(null);
-
-      try {
-        const info = await getAudioInfo(selectedFile);
-        setDuration(info.duration);
-      } catch {
-        // Duration not critical
-      }
-    }
-  }, []);
-
-  const handleNormalize = async () => {
-    if (!file) return;
-
+  const processFile = useCallback(async (fileToProcess: File, targetPreset: NormalizePreset) => {
+    if (processingRef.current) return;
+    processingRef.current = true;
     setError(null);
     setProgress(0);
 
@@ -62,26 +52,47 @@ export default function NormalizeAudioPage() {
 
       setProcessingState("normalizing");
 
-      const blob = await normalizeAudio(file, preset, (p) => setProgress(p));
+      const blob = await normalizeAudio(fileToProcess, targetPreset, (p) => setProgress(p));
 
-      const baseName = file.name.split(".").slice(0, -1).join(".");
-      setResult({ blob, filename: `${baseName}_normalized.wav` });
+      const baseName = fileToProcess.name.split(".").slice(0, -1).join(".");
+      setResult(blob, `${baseName}_normalized.wav`);
+      setUsedPreset(targetPreset);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to normalize audio");
     } finally {
       setProcessingState("idle");
+      processingRef.current = false;
     }
-  };
+  }, [setResult]);
 
-  const handleDownload = () => {
-    if (result) {
-      downloadAudio(result.blob, result.filename);
+  const handleFileSelected = useCallback(async (files: File[]) => {
+    if (files.length > 0) {
+      const selectedFile = files[0];
+      setFile(selectedFile);
+      setError(null);
+      clearResult();
+
+      try {
+        const info = await getAudioInfo(selectedFile);
+        setDuration(info.duration);
+      } catch {
+        // Duration not critical
+      }
+
+      if (isInstant) {
+        processFile(selectedFile, "podcast"); // -16 LUFS default
+      }
     }
+  }, [isInstant, processFile, clearResult]);
+
+  const handleNormalize = async () => {
+    if (!file) return;
+    processFile(file, preset);
   };
 
   const handleStartOver = () => {
+    clearResult();
     setFile(null);
-    setResult(null);
     setError(null);
     setProgress(0);
     setDuration(0);
@@ -89,6 +100,9 @@ export default function NormalizeAudioPage() {
 
   const isProcessing = processingState !== "idle";
   const selectedPreset = presets.find(p => p.value === preset);
+  const usedPresetInfo = presets.find(p => p.value === usedPreset);
+
+  if (!isLoaded) return null;
 
   return (
     <div className="page-enter max-w-2xl mx-auto space-y-8">
@@ -103,12 +117,14 @@ export default function NormalizeAudioPage() {
         <SuccessCard
           stampText="Normalized"
           title="Audio Normalized!"
-          subtitle={`Target: ${selectedPreset?.label} (${selectedPreset?.lufs}) | ${formatFileSize(result.blob.size)}`}
+          subtitle={`Target: ${usedPresetInfo?.label} (${usedPresetInfo?.lufs}) | ${formatFileSize(result.blob.size)}`}
           downloadLabel="Download Normalized Audio"
-          onDownload={handleDownload}
+          onDownload={download}
           onStartOver={handleStartOver}
           startOverLabel="Normalize Another"
-        />
+        >
+          <AudioPlayer src={result.url} />
+        </SuccessCard>
       ) : !file ? (
         <FileDropzone
           accept=".mp3,.wav,.ogg,.m4a,.webm,.aac,.flac"

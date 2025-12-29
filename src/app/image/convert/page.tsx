@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import { convertFormat, downloadImage, formatFileSize, ImageFormat } from "@/lib/image-utils";
 import { ConvertIcon, ImageIcon } from "@/components/icons";
+import { useInstantMode } from "@/components/shared/InstantModeToggle";
 import {
   ImagePageHeader,
   ErrorBox,
@@ -28,6 +29,7 @@ const formats: { value: ImageFormat; label: string; description: string }[] = [
 ];
 
 export default function ImageConvertPage() {
+  const { isInstant, isLoaded } = useInstantMode();
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [targetFormat, setTargetFormat] = useState<ImageFormat>("jpeg");
@@ -36,6 +38,39 @@ export default function ImageConvertPage() {
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ConvertResult | null>(null);
+  const processingRef = useRef(false);
+
+  const processFile = useCallback(async (fileToProcess: File, format: ImageFormat, q: number) => {
+    if (processingRef.current) return;
+    processingRef.current = true;
+    setIsProcessing(true);
+    setProgress(0);
+    setError(null);
+    setResult(null);
+
+    try {
+      setProgress(30);
+      const converted = await convertFormat(fileToProcess, format, q / 100);
+      setProgress(90);
+
+      const baseName = fileToProcess.name.split(".").slice(0, -1).join(".");
+      const ext = format === "jpeg" ? "jpg" : format;
+      const originalExt = fileToProcess.name.split(".").pop()?.toUpperCase() || "Unknown";
+
+      setResult({
+        blob: converted,
+        filename: `${baseName}.${ext}`,
+        originalFormat: originalExt,
+        newFormat: format,
+      });
+      setProgress(100);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to convert image");
+    } finally {
+      setIsProcessing(false);
+      processingRef.current = false;
+    }
+  }, []);
 
   const handleFileSelected = useCallback((files: File[]) => {
     if (files.length > 0) {
@@ -52,8 +87,13 @@ export default function ImageConvertPage() {
       if (ext === "png") setTargetFormat("jpeg");
       else if (ext === "jpg" || ext === "jpeg") setTargetFormat("png");
       else if (ext === "webp") setTargetFormat("jpeg");
+
+      if (isInstant) {
+        // Instant mode: convert to PNG by default
+        processFile(selectedFile, "png", 100);
+      }
     }
-  }, []);
+  }, [isInstant, processFile]);
 
   const handleClear = useCallback(() => {
     if (preview) URL.revokeObjectURL(preview);
@@ -87,34 +127,7 @@ export default function ImageConvertPage() {
 
   const handleConvert = async () => {
     if (!file) return;
-
-    setIsProcessing(true);
-    setProgress(0);
-    setError(null);
-    setResult(null);
-
-    try {
-      setProgress(30);
-      const converted = await convertFormat(file, targetFormat, quality / 100);
-      setProgress(90);
-
-      const baseName = file.name.split(".").slice(0, -1).join(".");
-      const ext = targetFormat === "jpeg" ? "jpg" : targetFormat;
-      const originalExt = file.name.split(".").pop()?.toUpperCase() || "Unknown";
-
-      setResult({
-        blob: converted,
-        filename: `${baseName}.${ext}`,
-        originalFormat: originalExt,
-        newFormat: targetFormat,
-      });
-
-      setProgress(100);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to convert image");
-    } finally {
-      setIsProcessing(false);
-    }
+    processFile(file, targetFormat, quality);
   };
 
   const handleDownload = (e: React.MouseEvent) => {
@@ -133,6 +146,8 @@ export default function ImageConvertPage() {
   };
 
   const showQualitySlider = targetFormat === "jpeg" || targetFormat === "webp";
+
+  if (!isLoaded) return null;
 
   return (
     <div className="page-enter max-w-2xl mx-auto space-y-8">
@@ -179,11 +194,11 @@ export default function ImageConvertPage() {
               <path d="M12 8h.01" />
             </svg>
             <div className="text-sm">
-              <p className="font-bold text-foreground mb-1">Format guide</p>
+              <p className="font-bold text-foreground mb-1">{isInstant ? "Instant conversion" : "Format guide"}</p>
               <p className="text-muted-foreground">
-                <strong>JPEG:</strong> Best for photos, smaller files.{" "}
-                <strong>PNG:</strong> Lossless with transparency.{" "}
-                <strong>WebP:</strong> Modern format with best compression.
+                {isInstant
+                  ? "Drop an image and it will be converted to PNG automatically."
+                  : "JPEG: Best for photos. PNG: Lossless with transparency. WebP: Modern format."}
               </p>
             </div>
           </div>

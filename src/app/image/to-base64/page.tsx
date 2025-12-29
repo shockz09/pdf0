@@ -5,8 +5,10 @@ import { FileDropzone } from "@/components/pdf/file-dropzone";
 import { imageToBase64, formatFileSize } from "@/lib/image-utils";
 import { Base64Icon, ImageIcon, CheckIcon, LoaderIcon } from "@/components/icons";
 import { ImagePageHeader, ErrorBox, ImageFileInfo } from "@/components/image/shared";
+import { useInstantMode } from "@/components/shared/InstantModeToggle";
 
 export default function ImageToBase64Page() {
+  const { isInstant, isLoaded } = useInstantMode();
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [base64, setBase64] = useState<string | null>(null);
@@ -85,6 +87,8 @@ export default function ImageToBase64Page() {
       setTimeout(() => setCopied(false), 2000);
     }
   };
+
+  if (!isLoaded) return null;
 
   return (
     <div className="page-enter max-w-2xl mx-auto space-y-8">

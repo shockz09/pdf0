@@ -3,7 +3,7 @@
 import { useState, useCallback } from "react";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import { mergeAudio, isFFmpegLoaded, MergeOutputFormat } from "@/lib/ffmpeg-utils";
-import { formatFileSize, downloadAudio } from "@/lib/audio-utils";
+import { formatFileSize } from "@/lib/audio-utils";
 import { AudioIcon, GripIcon, XIcon, AudioMergeIcon } from "@/components/icons";
 import {
   FFmpegNotice,
@@ -13,6 +13,8 @@ import {
   SuccessCard,
   AudioPageHeader,
 } from "@/components/audio/shared";
+import { AudioPlayer } from "@/components/audio/AudioPlayer";
+import { useAudioResult } from "@/hooks/useAudioResult";
 
 const outputFormats: { value: MergeOutputFormat; label: string; desc: string }[] = [
   { value: "mp3", label: "MP3", desc: "Compressed" },
@@ -27,14 +29,14 @@ export default function MergeAudioPage() {
   const [processingState, setProcessingState] = useState<ProcessingState>("idle");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ blob: Blob; filename: string } | null>(null);
+  const { result, setResult, clearResult, download } = useAudioResult();
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
 
   const handleFilesSelected = useCallback((newFiles: File[]) => {
     setFiles(prev => [...prev, ...newFiles]);
     setError(null);
-    setResult(null);
-  }, []);
+    clearResult();
+  }, [clearResult]);
 
   const handleRemoveFile = (index: number) => {
     setFiles(prev => prev.filter((_, i) => i !== index));
@@ -78,7 +80,7 @@ export default function MergeAudioPage() {
 
       const blob = await mergeAudio(files, outputFormat, (p) => setProgress(p));
 
-      setResult({ blob, filename: `merged_audio.${outputFormat}` });
+      setResult(blob, `merged_audio.${outputFormat}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to merge audio");
     } finally {
@@ -86,15 +88,9 @@ export default function MergeAudioPage() {
     }
   };
 
-  const handleDownload = () => {
-    if (result) {
-      downloadAudio(result.blob, result.filename);
-    }
-  };
-
   const handleStartOver = () => {
+    clearResult();
     setFiles([]);
-    setResult(null);
     setError(null);
     setProgress(0);
   };
@@ -117,10 +113,12 @@ export default function MergeAudioPage() {
           title="Audio Merged!"
           subtitle={`${files.length} files combined | ${formatFileSize(result.blob.size)}`}
           downloadLabel="Download Merged Audio"
-          onDownload={handleDownload}
+          onDownload={download}
           onStartOver={handleStartOver}
           startOverLabel="Merge More Files"
-        />
+        >
+          <AudioPlayer src={result.url} />
+        </SuccessCard>
       ) : (
         <div className="space-y-4">
           <FileDropzone

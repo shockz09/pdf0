@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import { compressImage, downloadImage, formatFileSize, getOutputFilename } from "@/lib/image-utils";
 import { ImageCompressIcon, ImageIcon } from "@/components/icons";
+import { useInstantMode } from "@/components/shared/InstantModeToggle";
 import {
   ImagePageHeader,
   ErrorBox,
@@ -23,6 +24,7 @@ interface CompressResult {
 }
 
 export default function ImageCompressPage() {
+  const { isInstant, isLoaded } = useInstantMode();
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [quality, setQuality] = useState(80);
@@ -30,6 +32,34 @@ export default function ImageCompressPage() {
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<CompressResult | null>(null);
+  const processingRef = useRef(false);
+
+  const processFile = useCallback(async (fileToProcess: File, q: number) => {
+    if (processingRef.current) return;
+    processingRef.current = true;
+    setIsProcessing(true);
+    setProgress(0);
+    setError(null);
+    setResult(null);
+
+    try {
+      setProgress(30);
+      const compressed = await compressImage(fileToProcess, q / 100);
+      setProgress(90);
+      setResult({
+        blob: compressed,
+        filename: getOutputFilename(fileToProcess.name, "jpeg", "_compressed"),
+        originalSize: fileToProcess.size,
+        compressedSize: compressed.size,
+      });
+      setProgress(100);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to compress image");
+    } finally {
+      setIsProcessing(false);
+      processingRef.current = false;
+    }
+  }, []);
 
   const handleFileSelected = useCallback((files: File[]) => {
     if (files.length > 0) {
@@ -39,8 +69,12 @@ export default function ImageCompressPage() {
       setResult(null);
       const url = URL.createObjectURL(selectedFile);
       setPreview(url);
+
+      if (isInstant) {
+        processFile(selectedFile, 80);
+      }
     }
-  }, []);
+  }, [isInstant, processFile]);
 
   const handleClear = useCallback(() => {
     if (preview) URL.revokeObjectURL(preview);
@@ -74,27 +108,7 @@ export default function ImageCompressPage() {
 
   const handleCompress = async () => {
     if (!file) return;
-    setIsProcessing(true);
-    setProgress(0);
-    setError(null);
-    setResult(null);
-
-    try {
-      setProgress(30);
-      const compressed = await compressImage(file, quality / 100);
-      setProgress(90);
-      setResult({
-        blob: compressed,
-        filename: getOutputFilename(file.name, "jpeg", "_compressed"),
-        originalSize: file.size,
-        compressedSize: compressed.size,
-      });
-      setProgress(100);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to compress image");
-    } finally {
-      setIsProcessing(false);
-    }
+    processFile(file, quality);
   };
 
   const handleDownload = (e: React.MouseEvent) => {
@@ -113,6 +127,8 @@ export default function ImageCompressPage() {
   };
 
   const savings = result ? Math.round((1 - result.compressedSize / result.originalSize) * 100) : 0;
+
+  if (!isLoaded) return null;
 
   return (
     <div className="page-enter max-w-2xl mx-auto space-y-8">
@@ -156,9 +172,11 @@ export default function ImageCompressPage() {
               <path d="M12 8h.01" />
             </svg>
             <div className="text-sm">
-              <p className="font-bold text-foreground mb-1">About compression</p>
+              <p className="font-bold text-foreground mb-1">{isInstant ? "Instant compression" : "About compression"}</p>
               <p className="text-muted-foreground">
-                Compresses images using JPEG encoding. For best results, adjust the quality slider to find the right balance between file size and visual quality.
+                {isInstant
+                  ? "Drop an image and it will be compressed at 80% quality automatically."
+                  : "Compresses images using JPEG encoding. Adjust the quality slider to balance file size and visual quality."}
               </p>
             </div>
           </div>

@@ -5,7 +5,6 @@ import { FileDropzone } from "@/components/pdf/file-dropzone";
 import {
   trimAudio,
   getAudioInfo,
-  downloadAudio,
   formatDuration,
   formatFileSize,
   getWaveformData,
@@ -17,6 +16,8 @@ import {
   SuccessCard,
   AudioPageHeader,
 } from "@/components/audio/shared";
+import { AudioPlayer } from "@/components/audio/AudioPlayer";
+import { useAudioResult } from "@/hooks/useAudioResult";
 
 export default function TrimAudioPage() {
   const [file, setFile] = useState<File | null>(null);
@@ -29,9 +30,12 @@ export default function TrimAudioPage() {
   const [currentTime, setCurrentTime] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<Blob | null>(null);
+  const { result, setResult, clearResult, download } = useAudioResult();
+  const [dragging, setDragging] = useState<"start" | "end" | "region" | null>(null);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const waveformRef = useRef<HTMLDivElement | null>(null);
+  const loadIdRef = useRef(0); // Track current load operation to prevent race conditions
 
   useEffect(() => {
     return () => {
@@ -42,37 +46,48 @@ export default function TrimAudioPage() {
   const handleFileSelected = useCallback(async (files: File[]) => {
     if (files.length > 0) {
       const selectedFile = files[0];
+      const currentLoadId = ++loadIdRef.current; // Increment and capture load ID
+
       setFile(selectedFile);
       setError(null);
-      setResult(null);
+      clearResult();
 
       try {
         const info = await getAudioInfo(selectedFile);
+        // Check if this is still the current operation
+        if (loadIdRef.current !== currentLoadId) return;
+
         setDuration(info.duration);
         setStartTime(0);
         setEndTime(info.duration);
 
         const waveformData = await getWaveformData(selectedFile, 200);
+        // Check again after second async operation
+        if (loadIdRef.current !== currentLoadId) return;
+
         setWaveform(waveformData);
 
         const url = URL.createObjectURL(selectedFile);
         if (audioUrl) URL.revokeObjectURL(audioUrl);
         setAudioUrl(url);
       } catch {
-        setError("Failed to load audio file. Please try a different format.");
+        // Only show error if this is still the current operation
+        if (loadIdRef.current === currentLoadId) {
+          setError("Failed to load audio file. Please try a different format.");
+        }
       }
     }
-  }, [audioUrl]);
+  }, [audioUrl, clearResult]);
 
   const handleClear = useCallback(() => {
     if (audioUrl) URL.revokeObjectURL(audioUrl);
+    clearResult();
     setFile(null);
     setAudioUrl(null);
     setDuration(0);
     setWaveform([]);
     setError(null);
-    setResult(null);
-  }, [audioUrl]);
+  }, [audioUrl, clearResult]);
 
   const togglePlay = () => {
     if (!audioRef.current) return;
@@ -101,11 +116,12 @@ export default function TrimAudioPage() {
 
     setIsProcessing(true);
     setError(null);
-    setResult(null);
+    clearResult();
 
     try {
       const trimmed = await trimAudio(file, startTime, endTime);
-      setResult(trimmed);
+      const baseName = file.name.split(".").slice(0, -1).join(".");
+      setResult(trimmed, `${baseName}_trimmed.wav`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to trim audio");
     } finally {
@@ -113,22 +129,58 @@ export default function TrimAudioPage() {
     }
   };
 
-  const handleDownload = () => {
-    if (result && file) {
-      const baseName = file.name.split(".").slice(0, -1).join(".");
-      downloadAudio(result, `${baseName}_trimmed.wav`);
-    }
-  };
-
   const handleStartOver = () => {
     if (audioUrl) URL.revokeObjectURL(audioUrl);
+    clearResult();
     setFile(null);
     setAudioUrl(null);
     setDuration(0);
     setWaveform([]);
-    setResult(null);
     setError(null);
   };
+
+  // Drag handling for waveform selection
+  const getTimeFromEvent = (e: React.MouseEvent | MouseEvent) => {
+    if (!waveformRef.current || duration === 0) return null;
+    const rect = waveformRef.current.getBoundingClientRect();
+    const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+    return (x / rect.width) * duration;
+  };
+
+  const handleMouseDown = (type: "start" | "end" | "region") => (e: React.MouseEvent) => {
+    e.preventDefault();
+    setDragging(type);
+  };
+
+  useEffect(() => {
+    if (!dragging) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const time = getTimeFromEvent(e);
+      if (time === null) return;
+
+      if (dragging === "start") {
+        setStartTime(Math.max(0, Math.min(time, endTime - 0.1)));
+      } else if (dragging === "end") {
+        setEndTime(Math.min(duration, Math.max(time, startTime + 0.1)));
+      } else if (dragging === "region") {
+        // Move entire region - calculate based on initial grab point
+        const regionDuration = endTime - startTime;
+        const newStart = Math.max(0, Math.min(time - regionDuration / 2, duration - regionDuration));
+        setStartTime(newStart);
+        setEndTime(newStart + regionDuration);
+      }
+    };
+
+    const handleMouseUp = () => setDragging(null);
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [dragging, startTime, endTime, duration]);
 
   const startPercent = duration > 0 ? (startTime / duration) * 100 : 0;
   const endPercent = duration > 0 ? (endTime / duration) * 100 : 100;
@@ -147,12 +199,14 @@ export default function TrimAudioPage() {
         <SuccessCard
           stampText="Trimmed"
           title="Audio Trimmed!"
-          subtitle={`Duration: ${formatDuration(endTime - startTime)} • ${formatFileSize(result.size)}`}
+          subtitle={`Duration: ${formatDuration(endTime - startTime)} • ${formatFileSize(result.blob.size)}`}
           downloadLabel="Download Trimmed Audio"
-          onDownload={handleDownload}
+          onDownload={download}
           onStartOver={handleStartOver}
           startOverLabel="Trim Another Audio"
-        />
+        >
+          <AudioPlayer src={result.url} />
+        </SuccessCard>
       ) : !file ? (
         <FileDropzone
           accept=".mp3,.wav,.ogg,.m4a,.webm,.aac"
@@ -191,12 +245,20 @@ export default function TrimAudioPage() {
             </button>
           </div>
 
-          {/* Waveform with selection */}
+          {/* Waveform with draggable selection */}
           <div className="space-y-3">
-            <label className="input-label">Select region to keep</label>
-            <div className="relative border-2 border-foreground bg-muted/30 h-24">
+            <div className="flex items-center justify-between">
+              <label className="input-label">Drag handles to select region</label>
+              <span className="text-sm font-mono text-muted-foreground">
+                {formatDuration(startTime)} → {formatDuration(endTime)}
+              </span>
+            </div>
+            <div
+              ref={waveformRef}
+              className={`relative border-2 border-foreground bg-muted/30 h-28 select-none ${dragging ? "cursor-grabbing" : ""}`}
+            >
               {/* Waveform bars */}
-              <div className="absolute inset-0 flex items-center px-1">
+              <div className="absolute inset-0 flex items-center px-1 pointer-events-none">
                 {waveform.map((val, i) => (
                   <div
                     key={i}
@@ -206,26 +268,55 @@ export default function TrimAudioPage() {
                 ))}
               </div>
 
-              {/* Selected region overlay */}
+              {/* Dimmed areas outside selection */}
               <div
-                className="absolute top-0 bottom-0 bg-primary/20 border-x-2 border-primary"
+                className="absolute top-0 bottom-0 left-0 bg-foreground/40 pointer-events-none"
+                style={{ width: `${startPercent}%` }}
+              />
+              <div
+                className="absolute top-0 bottom-0 right-0 bg-foreground/40 pointer-events-none"
+                style={{ width: `${100 - endPercent}%` }}
+              />
+
+              {/* Selected region (draggable to move) */}
+              <div
+                className={`absolute top-0 bottom-0 cursor-grab ${dragging === "region" ? "cursor-grabbing" : ""}`}
                 style={{
                   left: `${startPercent}%`,
                   width: `${endPercent - startPercent}%`,
                 }}
+                onMouseDown={handleMouseDown("region")}
               />
+
+              {/* Start handle */}
+              <div
+                className={`absolute top-0 bottom-0 w-3 bg-primary cursor-ew-resize hover:bg-primary/80 flex items-center justify-center ${dragging === "start" ? "bg-primary/80" : ""}`}
+                style={{ left: `calc(${startPercent}% - 6px)` }}
+                onMouseDown={handleMouseDown("start")}
+              >
+                <div className="w-0.5 h-8 bg-primary-foreground/50" />
+              </div>
+
+              {/* End handle */}
+              <div
+                className={`absolute top-0 bottom-0 w-3 bg-primary cursor-ew-resize hover:bg-primary/80 flex items-center justify-center ${dragging === "end" ? "bg-primary/80" : ""}`}
+                style={{ left: `calc(${endPercent}% - 6px)` }}
+                onMouseDown={handleMouseDown("end")}
+              >
+                <div className="w-0.5 h-8 bg-primary-foreground/50" />
+              </div>
 
               {/* Current time indicator */}
               {isPlaying && (
                 <div
-                  className="absolute top-0 bottom-0 w-0.5 bg-foreground"
+                  className="absolute top-0 bottom-0 w-0.5 bg-foreground pointer-events-none"
                   style={{ left: `${currentPercent}%` }}
                 />
               )}
             </div>
 
-            {/* Play button */}
-            <div className="flex justify-center">
+            {/* Play button and selection info */}
+            <div className="flex items-center justify-between">
               <button
                 onClick={togglePlay}
                 className="w-12 h-12 border-2 border-foreground flex items-center justify-center hover:bg-muted transition-colors"
@@ -236,51 +327,11 @@ export default function TrimAudioPage() {
                   <PlayIcon className="w-5 h-5 ml-0.5" />
                 )}
               </button>
+              <div className="text-right">
+                <p className="text-sm text-muted-foreground">Selected duration</p>
+                <p className="text-xl font-bold font-mono">{formatDuration(endTime - startTime)}</p>
+              </div>
             </div>
-          </div>
-
-          {/* Time inputs */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="input-label">Start Time</label>
-              <input
-                type="range"
-                min={0}
-                max={duration}
-                step={0.1}
-                value={startTime}
-                onChange={(e) => {
-                  const val = Number(e.target.value);
-                  setStartTime(Math.min(val, endTime - 0.1));
-                }}
-                className="w-full"
-              />
-              <p className="text-sm font-mono text-center">{formatDuration(startTime)}</p>
-            </div>
-            <div className="space-y-2">
-              <label className="input-label">End Time</label>
-              <input
-                type="range"
-                min={0}
-                max={duration}
-                step={0.1}
-                value={endTime}
-                onChange={(e) => {
-                  const val = Number(e.target.value);
-                  setEndTime(Math.max(val, startTime + 0.1));
-                }}
-                className="w-full"
-              />
-              <p className="text-sm font-mono text-center">{formatDuration(endTime)}</p>
-            </div>
-          </div>
-
-          {/* Selection info */}
-          <div className="bg-muted/50 border-2 border-foreground p-4 text-center">
-            <p className="text-sm text-muted-foreground">Selected duration</p>
-            <p className="text-2xl font-bold font-mono">
-              {formatDuration(endTime - startTime)}
-            </p>
           </div>
 
           {error && <ErrorBox message={error} />}

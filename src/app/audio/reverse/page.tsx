@@ -1,24 +1,23 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
-import { reverseAudio, downloadAudio, formatDuration, formatFileSize, getAudioInfo } from "@/lib/audio-utils";
-import { ReverseIcon } from "@/components/icons";
-import {
-  ErrorBox,
-  ProcessButton,
-  SuccessCard,
-  AudioFileInfo,
-  AudioPageHeader,
-} from "@/components/audio/shared";
+import { reverseAudio, formatDuration, formatFileSize, getAudioInfo } from "@/lib/audio-utils";
+import { ReverseIcon, LoaderIcon } from "@/components/icons";
+import { ErrorBox, SuccessCard, AudioFileInfo, AudioPageHeader } from "@/components/audio/shared";
+import { AudioPlayer } from "@/components/audio/AudioPlayer";
+import { useInstantMode } from "@/components/shared/InstantModeToggle";
+import { useAudioResult } from "@/hooks/useAudioResult";
 
 export default function ReverseAudioPage() {
+  const { isInstant, isLoaded } = useInstantMode();
   const [file, setFile] = useState<File | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [duration, setDuration] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<Blob | null>(null);
+  const { result, setResult, clearResult, download } = useAudioResult();
+  const processingRef = useRef(false);
 
   useEffect(() => {
     return () => {
@@ -26,54 +25,76 @@ export default function ReverseAudioPage() {
     };
   }, [audioUrl]);
 
+  const processFile = useCallback(async (fileToProcess: File) => {
+    if (processingRef.current) return;
+    processingRef.current = true;
+    setIsProcessing(true);
+    setError(null);
+
+    try {
+      const info = await getAudioInfo(fileToProcess);
+      setDuration(info.duration);
+      const processed = await reverseAudio(fileToProcess);
+      const baseName = fileToProcess.name.split(".").slice(0, -1).join(".");
+      setResult(processed, `${baseName}_reversed.wav`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to reverse audio");
+    } finally {
+      setIsProcessing(false);
+      processingRef.current = false;
+    }
+  }, [setResult]);
+
   const handleFileSelected = useCallback(async (files: File[]) => {
     if (files.length > 0) {
       const selectedFile = files[0];
       setFile(selectedFile);
       setError(null);
-      setResult(null);
+      clearResult();
+
+      const url = URL.createObjectURL(selectedFile);
+      if (audioUrl) URL.revokeObjectURL(audioUrl);
+      setAudioUrl(url);
 
       try {
         const info = await getAudioInfo(selectedFile);
         setDuration(info.duration);
-        const url = URL.createObjectURL(selectedFile);
-        if (audioUrl) URL.revokeObjectURL(audioUrl);
-        setAudioUrl(url);
       } catch {
-        setError("Failed to load audio file.");
+        // ignore
+      }
+
+      if (isInstant) {
+        processFile(selectedFile);
       }
     }
-  }, [audioUrl]);
+  }, [isInstant, processFile, audioUrl, clearResult]);
 
-  const handleProcess = async () => {
-    if (!file) return;
-    setIsProcessing(true);
-    setError(null);
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of items) {
+        if (item.type.startsWith("audio/")) {
+          const f = item.getAsFile();
+          if (f) handleFileSelected([f]);
+          break;
+        }
+      }
+    };
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, [handleFileSelected]);
 
-    try {
-      const processed = await reverseAudio(file);
-      setResult(processed);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to reverse audio");
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  const handleDownload = () => {
-    if (result && file) {
-      const baseName = file.name.split(".").slice(0, -1).join(".");
-      downloadAudio(result, `${baseName}_reversed.wav`);
-    }
-  };
-
-  const handleStartOver = () => {
+  const handleClear = () => {
     if (audioUrl) URL.revokeObjectURL(audioUrl);
+    clearResult();
     setFile(null);
     setAudioUrl(null);
-    setResult(null);
     setError(null);
+    setDuration(0);
   };
+
+  if (!isLoaded) return null;
 
   return (
     <div className="page-enter max-w-2xl mx-auto space-y-8">
@@ -88,35 +109,57 @@ export default function ReverseAudioPage() {
         <SuccessCard
           stampText="Reversed"
           title="Audio Reversed!"
-          subtitle={`${formatDuration(duration)} • ${formatFileSize(result.size)}`}
+          subtitle={`${formatDuration(duration)} • ${formatFileSize(result.blob.size)}`}
           downloadLabel="Download Reversed Audio"
-          onDownload={handleDownload}
-          onStartOver={handleStartOver}
+          onDownload={download}
+          onStartOver={handleClear}
           startOverLabel="Reverse Another"
-        />
+        >
+          <AudioPlayer src={result.url} />
+        </SuccessCard>
+      ) : isProcessing ? (
+        <div className="border-2 border-foreground p-12 bg-card">
+          <div className="flex flex-col items-center justify-center gap-4">
+            <LoaderIcon className="w-8 h-8 animate-spin" />
+            <div className="text-center">
+              <p className="font-bold">Reversing audio...</p>
+              <p className="text-sm text-muted-foreground">{file?.name}</p>
+            </div>
+          </div>
+        </div>
+      ) : error ? (
+        <div className="space-y-4">
+          <ErrorBox message={error} />
+          <button onClick={handleClear} className="btn-secondary w-full">Try Again</button>
+        </div>
       ) : !file ? (
-        <FileDropzone
-          accept=".mp3,.wav,.ogg,.m4a,.webm"
-          multiple={false}
-          onFilesSelected={handleFileSelected}
-          title="Drop your audio file here"
-          subtitle="MP3, WAV, OGG, M4A, WebM"
-        />
+        <div className="space-y-6">
+          <FileDropzone
+            accept=".mp3,.wav,.ogg,.m4a,.webm"
+            multiple={false}
+            onFilesSelected={handleFileSelected}
+            title="Drop your audio file here"
+            subtitle="MP3, WAV, OGG, M4A, WebM"
+          />
+          <div className="info-box">
+            <ReverseIcon className="w-5 h-5 mt-0.5" />
+            <div className="text-sm">
+              <p className="font-bold text-foreground mb-1">{isInstant ? "Instant reverse" : "Manual mode"}</p>
+              <p className="text-muted-foreground">
+                {isInstant
+                  ? "Drop an audio file and it will be reversed automatically."
+                  : "Drop an audio file, preview it, then click to reverse."}
+              </p>
+            </div>
+          </div>
+        </div>
       ) : (
         <div className="space-y-6">
-          <AudioFileInfo file={file} duration={duration} onClear={handleStartOver} />
-
-          {audioUrl && <audio controls src={audioUrl} className="w-full" />}
-
-          {error && <ErrorBox message={error} />}
-
-          <ProcessButton
-            onClick={handleProcess}
-            isProcessing={isProcessing}
-            processingLabel="Reversing..."
-            icon={<ReverseIcon className="w-5 h-5" />}
-            label="Reverse Audio"
-          />
+          <AudioFileInfo file={file} duration={duration} onClear={handleClear} />
+          {audioUrl && <AudioPlayer src={audioUrl} />}
+          <button onClick={() => processFile(file)} disabled={isProcessing} className="btn-primary w-full">
+            <ReverseIcon className="w-5 h-5" />Reverse Audio
+          </button>
         </div>
       )}
     </div>

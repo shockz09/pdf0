@@ -1,11 +1,14 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
+import { getWaveformDataFromUrl } from "@/lib/audio-utils";
 
 interface AudioPlayerProps {
   src: string;
   className?: string;
 }
+
+const WAVEFORM_BARS = 80;
 
 export function AudioPlayer({ src, className = "" }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -14,6 +17,35 @@ export function AudioPlayer({ src, className = "" }: AudioPlayerProps) {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  const [waveform, setWaveform] = useState<number[]>([]);
+  const [isLoadingWaveform, setIsLoadingWaveform] = useState(true);
+
+  // Load waveform data when src changes
+  useEffect(() => {
+    if (!src) return;
+
+    let cancelled = false;
+    setIsLoadingWaveform(true);
+
+    getWaveformDataFromUrl(src, WAVEFORM_BARS)
+      .then((data) => {
+        if (!cancelled) {
+          setWaveform(data);
+          setIsLoadingWaveform(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          // Fallback to empty waveform on error
+          setWaveform([]);
+          setIsLoadingWaveform(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [src]);
 
   // Format time as MM:SS
   const formatTime = (seconds: number) => {
@@ -86,15 +118,14 @@ export function AudioPlayer({ src, className = "" }: AudioPlayerProps) {
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 
-  // Generate smooth waveform bars
-  const waveformBars = 80;
+  // Get bar height from waveform data or fallback
   const getBarHeight = (index: number) => {
-    // Smoother wave using multiple overlapping sine waves
-    const t = index / waveformBars;
-    const wave1 = Math.sin(t * Math.PI * 4) * 0.25;
-    const wave2 = Math.sin(t * Math.PI * 7 + 1) * 0.15;
-    const wave3 = Math.sin(t * Math.PI * 2) * 0.1;
-    return 0.35 + wave1 + wave2 + wave3;
+    if (waveform.length > 0 && waveform[index] !== undefined) {
+      // Use real waveform data, scale to reasonable visual range
+      return 0.15 + waveform[index] * 0.7;
+    }
+    // Fallback: subtle flat bars while loading
+    return 0.2;
   };
 
   return (
@@ -146,13 +177,13 @@ export function AudioPlayer({ src, className = "" }: AudioPlayerProps) {
               onMouseDown={handleMouseDown}
               className="flex-1 bg-muted cursor-pointer relative group min-h-[40px] flex items-center px-3 overflow-hidden"
             >
-              {/* Waveform background - smooth bars */}
+              {/* Waveform background - real audio data */}
               <div className="absolute inset-0 flex items-center gap-px px-1">
-                {[...Array(waveformBars)].map((_, i) => (
+                {[...Array(WAVEFORM_BARS)].map((_, i) => (
                   <div
                     key={i}
-                    className="flex-1 bg-foreground/15"
-                    style={{ height: `${getBarHeight(i) * 60}%` }}
+                    className={`flex-1 transition-all duration-300 ${isLoadingWaveform ? "bg-foreground/10 animate-pulse" : "bg-foreground/15"}`}
+                    style={{ height: `${getBarHeight(i) * 80}%` }}
                   />
                 ))}
               </div>
@@ -163,11 +194,11 @@ export function AudioPlayer({ src, className = "" }: AudioPlayerProps) {
                 style={{ width: `${progress}%` }}
               >
                 <div className="absolute inset-0 flex items-center gap-px px-1" style={{ width: `${100 / (progress || 1) * 100}%` }}>
-                  {[...Array(waveformBars)].map((_, i) => (
+                  {[...Array(WAVEFORM_BARS)].map((_, i) => (
                     <div
                       key={i}
                       className="flex-1 bg-foreground/70"
-                      style={{ height: `${getBarHeight(i) * 60}%` }}
+                      style={{ height: `${getBarHeight(i) * 80}%` }}
                     />
                   ))}
                 </div>

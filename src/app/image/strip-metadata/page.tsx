@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import { stripMetadata, downloadImage, formatFileSize, getOutputFilename } from "@/lib/image-utils";
-import { MetadataIcon, ImageIcon, ShieldIcon, LoaderIcon } from "@/components/icons";
+import { MetadataIcon, ShieldIcon, LoaderIcon, ImageIcon } from "@/components/icons";
 import { ImagePageHeader, ErrorBox, SuccessCard, ImageFileInfo } from "@/components/image/shared";
+import { useInstantMode } from "@/components/shared/InstantModeToggle";
 
 interface StripResult {
   blob: Blob;
@@ -13,11 +14,35 @@ interface StripResult {
 }
 
 export default function StripMetadataPage() {
+  const { isInstant, isLoaded } = useInstantMode();
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<StripResult | null>(null);
+  const processingRef = useRef(false);
+
+  const processFile = useCallback(async (fileToProcess: File) => {
+    if (processingRef.current) return;
+    processingRef.current = true;
+    setIsProcessing(true);
+    setError(null);
+    setResult(null);
+
+    try {
+      const stripped = await stripMetadata(fileToProcess);
+      setResult({
+        blob: stripped,
+        filename: getOutputFilename(fileToProcess.name, undefined, "_clean"),
+        originalSize: fileToProcess.size,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to strip metadata");
+    } finally {
+      setIsProcessing(false);
+      processingRef.current = false;
+    }
+  }, []);
 
   const handleFileSelected = useCallback((files: File[]) => {
     if (files.length > 0) {
@@ -25,19 +50,16 @@ export default function StripMetadataPage() {
       setFile(selectedFile);
       setError(null);
       setResult(null);
-
       const url = URL.createObjectURL(selectedFile);
+      if (preview) URL.revokeObjectURL(preview);
       setPreview(url);
-    }
-  }, []);
 
-  const handleClear = useCallback(() => {
-    if (preview) URL.revokeObjectURL(preview);
-    setFile(null);
-    setPreview(null);
-    setError(null);
-    setResult(null);
-  }, [preview]);
+      // Auto-process if instant mode is on
+      if (isInstant) {
+        processFile(selectedFile);
+      }
+    }
+  }, [isInstant, processFile, preview]);
 
   useEffect(() => {
     return () => {
@@ -61,43 +83,25 @@ export default function StripMetadataPage() {
     return () => window.removeEventListener("paste", handlePaste);
   }, [handleFileSelected]);
 
-  const handleStrip = async () => {
-    if (!file) return;
-
-    setIsProcessing(true);
-    setError(null);
-    setResult(null);
-
-    try {
-      const stripped = await stripMetadata(file);
-
-      setResult({
-        blob: stripped,
-        filename: getOutputFilename(file.name, undefined, "_clean"),
-        originalSize: file.size,
-      });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to strip metadata");
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
   const handleDownload = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (result) {
-      downloadImage(result.blob, result.filename);
-    }
+    if (result) downloadImage(result.blob, result.filename);
   };
 
-  const handleStartOver = () => {
+  const handleClear = () => {
     if (preview) URL.revokeObjectURL(preview);
     setFile(null);
     setPreview(null);
-    setResult(null);
     setError(null);
+    setResult(null);
   };
+
+  const handleStartOver = () => {
+    handleClear();
+  };
+
+  if (!isLoaded) return null;
 
   return (
     <div className="page-enter max-w-2xl mx-auto space-y-8">
@@ -124,13 +128,29 @@ export default function StripMetadataPage() {
               <li>• GPS coordinates and location</li>
               <li>• Date and time taken</li>
               <li>• Software used</li>
-              <li>• Other EXIF metadata</li>
             </ul>
           </div>
           <p className="text-sm text-muted-foreground">
             New file size: {formatFileSize(result.blob.size)}
           </p>
         </SuccessCard>
+      ) : isProcessing ? (
+        <div className="border-2 border-foreground p-12 bg-card">
+          <div className="flex flex-col items-center justify-center gap-4">
+            <LoaderIcon className="w-8 h-8 animate-spin" />
+            <div className="text-center">
+              <p className="font-bold">Removing metadata...</p>
+              <p className="text-sm text-muted-foreground">{file?.name}</p>
+            </div>
+          </div>
+        </div>
+      ) : error ? (
+        <div className="space-y-4">
+          <ErrorBox message={error} />
+          <button onClick={handleStartOver} className="btn-secondary w-full">
+            Try Again
+          </button>
+        </div>
       ) : !file ? (
         <div className="space-y-6">
           <FileDropzone
@@ -144,16 +164,19 @@ export default function StripMetadataPage() {
           <div className="info-box">
             <ShieldIcon className="w-5 h-5 mt-0.5" />
             <div className="text-sm">
-              <p className="font-bold text-foreground mb-1">Protect your privacy</p>
+              <p className="font-bold text-foreground mb-1">
+                {isInstant ? "Instant processing" : "Manual mode"}
+              </p>
               <p className="text-muted-foreground">
-                Photos from smartphones contain hidden data like GPS location,
-                device info, and timestamps. Remove this data before sharing
-                images online.
+                {isInstant
+                  ? "Drop or paste an image and it will be cleaned automatically."
+                  : "Drop an image, review it, then click to process."}
               </p>
             </div>
           </div>
         </div>
       ) : (
+        /* Manual mode - show file info and process button */
         <div className="space-y-6">
           {preview && (
             <div className="border-2 border-foreground p-4 bg-muted/30">
@@ -168,7 +191,6 @@ export default function StripMetadataPage() {
             icon={<ImageIcon className="w-5 h-5" />}
           />
 
-          {/* Warning */}
           <div className="bg-[#FEF3C7] border-2 border-foreground p-4">
             <div className="flex gap-3">
               <svg className="w-5 h-5 text-[#92400E] shrink-0 mt-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -179,29 +201,15 @@ export default function StripMetadataPage() {
               <div className="text-sm">
                 <p className="font-bold text-[#92400E] mb-1">What will be removed</p>
                 <p className="text-[#92400E]/80">
-                  All EXIF metadata including camera info, GPS location, date
-                  taken, and any other embedded data. The image quality remains
-                  unchanged.
+                  All EXIF metadata including camera info, GPS location, date taken, and any other embedded data.
                 </p>
               </div>
             </div>
           </div>
 
-          {error && <ErrorBox message={error} />}
-
-          {isProcessing && (
-            <div className="flex items-center justify-center gap-2 text-sm font-semibold text-muted-foreground py-4">
-              <LoaderIcon className="w-4 h-4" />
-              <span>Removing metadata...</span>
-            </div>
-          )}
-
-          <button onClick={handleStrip} disabled={isProcessing} className="btn-primary w-full">
-            {isProcessing ? (
-              <><LoaderIcon className="w-5 h-5" />Processing...</>
-            ) : (
-              <><ShieldIcon className="w-5 h-5" />Remove All Metadata</>
-            )}
+          <button onClick={() => processFile(file)} disabled={isProcessing} className="btn-primary w-full">
+            <ShieldIcon className="w-5 h-5" />
+            Remove All Metadata
           </button>
         </div>
       )}

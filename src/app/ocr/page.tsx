@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import Tesseract from "tesseract.js";
@@ -8,10 +8,12 @@ import { pdfToImages } from "@/lib/pdf-image-utils";
 import { createSearchablePDF } from "@/lib/ocr-utils";
 import { downloadBlob } from "@/lib/pdf-utils";
 import { ArrowLeftIcon, OcrIcon, DownloadIcon, LoaderIcon } from "@/components/icons";
+import { useInstantMode } from "@/components/shared/InstantModeToggle";
 
 type OCRMode = "searchable" | "extract";
 
 export default function OcrPage() {
+  const { isInstant, isLoaded } = useInstantMode();
   const [file, setFile] = useState<File | null>(null);
   const [mode, setMode] = useState<OCRMode>("searchable");
   const [isProcessing, setIsProcessing] = useState(false);
@@ -22,6 +24,7 @@ export default function OcrPage() {
   const [searchablePdf, setSearchablePdf] = useState<Uint8Array | null>(null);
   const [language, setLanguage] = useState("eng");
   const [copied, setCopied] = useState(false);
+  const processingRef = useRef(false);
 
   const languages = [
     { code: "eng", name: "English" },
@@ -38,25 +41,9 @@ export default function OcrPage() {
     { code: "rus", name: "Russian" },
   ];
 
-  const handleFileSelected = useCallback((files: File[]) => {
-    if (files.length > 0) {
-      setFile(files[0]);
-      setError(null);
-      setExtractedText("");
-      setSearchablePdf(null);
-    }
-  }, []);
-
-  const handleClear = useCallback(() => {
-    setFile(null);
-    setError(null);
-    setExtractedText("");
-    setSearchablePdf(null);
-  }, []);
-
-  const handleProcess = async () => {
-    if (!file) return;
-
+  const processFile = useCallback(async (fileToProcess: File, ocrMode: OCRMode, lang: string) => {
+    if (processingRef.current) return;
+    processingRef.current = true;
     setIsProcessing(true);
     setProgress(0);
     setError(null);
@@ -64,10 +51,9 @@ export default function OcrPage() {
     setSearchablePdf(null);
 
     try {
-      if (mode === "searchable") {
-        // Create searchable PDF
-        const pdfData = await createSearchablePDF(file, {
-          language,
+      if (ocrMode === "searchable") {
+        const pdfData = await createSearchablePDF(fileToProcess, {
+          language: lang,
           onProgress: (percent, status) => {
             setProgress(percent);
             setStatusText(status);
@@ -75,12 +61,11 @@ export default function OcrPage() {
         });
         setSearchablePdf(pdfData);
       } else {
-        // Extract text only (existing logic)
         let imagesToProcess: Blob[] = [];
 
-        if (file.type === "application/pdf") {
+        if (fileToProcess.type === "application/pdf") {
           setStatusText("Converting PDF pages to images...");
-          const images = await pdfToImages(file, {
+          const images = await pdfToImages(fileToProcess, {
             scale: 2,
             onProgress: (current, total) => {
               setProgress(Math.round((current / total) * 30));
@@ -88,7 +73,7 @@ export default function OcrPage() {
           });
           imagesToProcess = images.map((i) => i.blob);
         } else {
-          imagesToProcess = [file];
+          imagesToProcess = [fileToProcess];
         }
 
         setStatusText("Extracting text with OCR...");
@@ -96,7 +81,7 @@ export default function OcrPage() {
         const allText: string[] = [];
 
         for (let i = 0; i < imagesToProcess.length; i++) {
-          const result = await Tesseract.recognize(imagesToProcess[i], language, {
+          const result = await Tesseract.recognize(imagesToProcess[i], lang, {
             logger: (m) => {
               if (m.status === "recognizing text") {
                 const pageProgress = m.progress * 100;
@@ -121,7 +106,34 @@ export default function OcrPage() {
     } finally {
       setIsProcessing(false);
       setStatusText("");
+      processingRef.current = false;
     }
+  }, []);
+
+  const handleFileSelected = useCallback((files: File[]) => {
+    if (files.length > 0) {
+      setFile(files[0]);
+      setError(null);
+      setExtractedText("");
+      setSearchablePdf(null);
+
+      if (isInstant) {
+        // Instant mode: create searchable PDF with English
+        processFile(files[0], "searchable", "eng");
+      }
+    }
+  }, [isInstant, processFile]);
+
+  const handleClear = useCallback(() => {
+    setFile(null);
+    setError(null);
+    setExtractedText("");
+    setSearchablePdf(null);
+  }, []);
+
+  const handleProcess = async () => {
+    if (!file) return;
+    processFile(file, mode, language);
   };
 
   const handleCopyText = async () => {
@@ -158,6 +170,8 @@ export default function OcrPage() {
   };
 
   const hasResult = extractedText || searchablePdf;
+
+  if (!isLoaded) return null;
 
   return (
     <div className="page-enter max-w-4xl mx-auto space-y-8">

@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import { generateFavicons, downloadImage, formatFileSize, FaviconSet } from "@/lib/image-utils";
 import { FaviconIcon, ImageIcon, DownloadIcon, LoaderIcon } from "@/components/icons";
 import { ImagePageHeader, ErrorBox, ImageFileInfo } from "@/components/image/shared";
+import { useInstantMode } from "@/components/shared/InstantModeToggle";
 
 interface FaviconResult {
   favicons: FaviconSet;
@@ -19,12 +20,32 @@ const pngSizes = [
 ];
 
 export default function FaviconPage() {
+  const { isInstant, isLoaded } = useInstantMode();
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [isSvgUpload, setIsSvgUpload] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<FaviconResult | null>(null);
+  const processingRef = useRef(false);
+
+  const processFile = useCallback(async (fileToProcess: File) => {
+    if (processingRef.current) return;
+    processingRef.current = true;
+    setIsProcessing(true);
+    setError(null);
+    setResult(null);
+
+    try {
+      const favicons = await generateFavicons(fileToProcess);
+      setResult({ favicons, hasSvg: !!favicons.svg });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to generate favicons");
+    } finally {
+      setIsProcessing(false);
+      processingRef.current = false;
+    }
+  }, []);
 
   const handleFileSelected = useCallback((files: File[]) => {
     if (files.length > 0) {
@@ -38,8 +59,12 @@ export default function FaviconPage() {
 
       const url = URL.createObjectURL(selectedFile);
       setPreview(url);
+
+      if (isInstant) {
+        processFile(selectedFile);
+      }
     }
-  }, []);
+  }, [isInstant, processFile]);
 
   const handleClear = useCallback(() => {
     if (preview) URL.revokeObjectURL(preview);
@@ -74,19 +99,7 @@ export default function FaviconPage() {
 
   const handleGenerate = async () => {
     if (!file) return;
-
-    setIsProcessing(true);
-    setError(null);
-    setResult(null);
-
-    try {
-      const favicons = await generateFavicons(file);
-      setResult({ favicons, hasSvg: !!favicons.svg });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to generate favicons");
-    } finally {
-      setIsProcessing(false);
-    }
+    processFile(file);
   };
 
   const handleDownloadSvg = () => {
@@ -125,6 +138,8 @@ export default function FaviconPage() {
     setResult(null);
     setError(null);
   };
+
+  if (!isLoaded) return null;
 
   return (
     <div className="page-enter max-w-2xl mx-auto space-y-8">
@@ -231,9 +246,11 @@ export default function FaviconPage() {
               <path d="M12 8h.01" />
             </svg>
             <div className="text-sm">
-              <p className="font-bold text-foreground mb-1">Tip</p>
+              <p className="font-bold text-foreground mb-1">{isInstant ? "Instant generation" : "Tip"}</p>
               <p className="text-muted-foreground">
-                Use a square image for best results. We'll generate all the sizes needed for browsers, iOS, and Android.
+                {isInstant
+                  ? "Drop a square image and all favicon sizes will be generated automatically."
+                  : "Use a square image for best results. We'll generate all sizes for browsers, iOS, and Android."}
               </p>
             </div>
           </div>

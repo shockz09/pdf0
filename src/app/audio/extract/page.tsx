@@ -1,85 +1,79 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import { extractAudioFromVideo, isFFmpegLoaded, ExtractOutputFormat } from "@/lib/ffmpeg-utils";
-import { formatFileSize, downloadAudio } from "@/lib/audio-utils";
+import { formatFileSize } from "@/lib/audio-utils";
 import { AUDIO_BITRATES } from "@/lib/constants";
-import { ExtractIcon, VideoIcon, DownloadIcon } from "@/components/icons";
-import {
-  FFmpegNotice,
-  ProgressBar,
-  ErrorBox,
-  ProcessButton,
-  AudioFileInfo,
-  AudioPageHeader,
-} from "@/components/audio/shared";
+import { ExtractIcon, VideoIcon, DownloadIcon, LoaderIcon } from "@/components/icons";
+import { FFmpegNotice, ProgressBar, ErrorBox, ProcessButton, AudioFileInfo, AudioPageHeader } from "@/components/audio/shared";
+import { useInstantMode } from "@/components/shared/InstantModeToggle";
+import { AudioPlayer } from "@/components/audio/AudioPlayer";
+import { useAudioResult } from "@/hooks/useAudioResult";
 
 const outputFormats: { value: ExtractOutputFormat; label: string; desc: string }[] = [
-  { value: "mp3", label: "MP3", desc: "Compressed, universal" },
-  { value: "wav", label: "WAV", desc: "Lossless, larger" },
+  { value: "mp3", label: "MP3", desc: "Compressed" },
+  { value: "wav", label: "WAV", desc: "Lossless" },
   { value: "ogg", label: "OGG", desc: "Open format" },
-  { value: "flac", label: "FLAC", desc: "Lossless, compressed" },
+  { value: "flac", label: "FLAC", desc: "Lossless" },
 ];
 
-type ProcessingState = "idle" | "loading-ffmpeg" | "extracting";
-
 export default function ExtractAudioPage() {
+  const { isInstant, isLoaded } = useInstantMode();
   const [file, setFile] = useState<File | null>(null);
   const [outputFormat, setOutputFormat] = useState<ExtractOutputFormat>("mp3");
   const [bitrate, setBitrate] = useState(192);
-  const [processingState, setProcessingState] = useState<ProcessingState>("idle");
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [processingStatus, setProcessingStatus] = useState("");
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<{ blob: Blob; filename: string } | null>(null);
+  const { result, setResult, clearResult, download } = useAudioResult();
+  const processingRef = useRef(false);
 
-  const handleFileSelected = useCallback((files: File[]) => {
-    if (files.length > 0) {
-      setFile(files[0]);
-      setError(null);
-      setResult(null);
-    }
-  }, []);
-
-  const handleExtract = async () => {
-    if (!file) return;
-
+  const processFile = useCallback(async (fileToProcess: File, format: ExtractOutputFormat = "mp3", br: number = 192) => {
+    if (processingRef.current) return;
+    processingRef.current = true;
+    setIsProcessing(true);
     setError(null);
     setProgress(0);
 
     try {
-      if (!isFFmpegLoaded()) {
-        setProcessingState("loading-ffmpeg");
-      }
-
-      setProcessingState("extracting");
-
-      const blob = await extractAudioFromVideo(file, outputFormat, bitrate, (p) => setProgress(p));
-
-      const baseName = file.name.split(".").slice(0, -1).join(".");
-      setResult({ blob, filename: `${baseName}.${outputFormat}` });
+      if (!isFFmpegLoaded()) setProcessingStatus("Loading audio engine...");
+      setProcessingStatus("Extracting audio...");
+      const blob = await extractAudioFromVideo(fileToProcess, format, br, (p) => setProgress(p));
+      const baseName = fileToProcess.name.split(".").slice(0, -1).join(".");
+      setResult(blob, `${baseName}.${format}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to extract audio");
     } finally {
-      setProcessingState("idle");
+      setIsProcessing(false);
+      processingRef.current = false;
+      setProcessingStatus("");
     }
-  };
+  }, [setResult]);
 
-  const handleDownload = () => {
-    if (result) {
-      downloadAudio(result.blob, result.filename);
+  const handleFileSelected = useCallback((files: File[]) => {
+    if (files.length > 0) {
+      const selectedFile = files[0];
+      setFile(selectedFile);
+      setError(null);
+      clearResult();
+      if (isInstant) {
+        processFile(selectedFile, "mp3", 192);
+      }
     }
-  };
+  }, [isInstant, processFile, clearResult]);
 
-  const handleStartOver = () => {
+  const handleClear = () => {
+    clearResult();
     setFile(null);
-    setResult(null);
     setError(null);
     setProgress(0);
   };
 
   const isLossless = outputFormat === "wav" || outputFormat === "flac";
-  const isProcessing = processingState !== "idle";
+
+  if (!isLoaded) return null;
 
   return (
     <div className="page-enter max-w-2xl mx-auto space-y-8">
@@ -95,14 +89,10 @@ export default function ExtractAudioPage() {
           <div className="success-card">
             <div className="success-stamp">
               <span className="success-stamp-text">Extracted</span>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><polyline points="20 6 9 17 4 12" /></svg>
             </div>
-
             <div className="space-y-4 mb-6">
               <h2 className="text-3xl font-display">Audio Extracted!</h2>
-
               <div className="flex items-center justify-center gap-4">
                 <div className="text-center">
                   <p className="text-xs font-bold uppercase text-muted-foreground">From</p>
@@ -116,36 +106,61 @@ export default function ExtractAudioPage() {
                 </div>
                 <div className="text-center">
                   <p className="text-xs font-bold uppercase text-muted-foreground">To</p>
-                  <p className="text-xl font-bold">{outputFormat.toUpperCase()}</p>
+                  <p className="text-xl font-bold">{result.filename.split(".").pop()?.toUpperCase()}</p>
                   <p className="text-sm text-muted-foreground">{formatFileSize(result.blob.size)}</p>
                 </div>
               </div>
             </div>
-
-            <button onClick={handleDownload} className="btn-success w-full mb-4">
-              <DownloadIcon className="w-5 h-5" />
-              Download {outputFormat.toUpperCase()}
+            <AudioPlayer src={result.url} />
+            <button onClick={download} className="btn-success w-full mb-4">
+              <DownloadIcon className="w-5 h-5" />Download
             </button>
           </div>
-          <button onClick={handleStartOver} className="btn-secondary w-full mt-4">
-            Extract Another
-          </button>
+          <button onClick={handleClear} className="btn-secondary w-full mt-4">Extract Another</button>
+        </div>
+      ) : isProcessing ? (
+        <div className="border-2 border-foreground p-12 bg-card">
+          <div className="flex flex-col items-center justify-center gap-4">
+            <LoaderIcon className="w-8 h-8 animate-spin" />
+            <div className="text-center">
+              <p className="font-bold">{processingStatus || "Processing..."}</p>
+              <p className="text-sm text-muted-foreground">{file?.name}</p>
+            </div>
+            <div className="w-full max-w-xs h-2 bg-muted border-2 border-foreground">
+              <div className="h-full bg-foreground transition-all duration-300" style={{ width: `${progress}%` }} />
+            </div>
+          </div>
+        </div>
+      ) : error ? (
+        <div className="space-y-4">
+          <ErrorBox message={error} />
+          <button onClick={handleClear} className="btn-secondary w-full">Try Again</button>
         </div>
       ) : !file ? (
-        <FileDropzone
-          accept=".mp4,.mov,.mkv,.avi,.webm,.flv,.wmv,.m4v,.3gp"
-          multiple={false}
-          onFilesSelected={handleFileSelected}
-          title="Drop your video file here"
-          subtitle="MP4, MOV, MKV, AVI, WebM, FLV, WMV"
-        />
+        <div className="space-y-6">
+          <FileDropzone
+            accept=".mp4,.mov,.mkv,.avi,.webm,.flv,.wmv,.m4v,.3gp"
+            multiple={false}
+            onFilesSelected={handleFileSelected}
+            title="Drop your video file here"
+            subtitle="MP4, MOV, MKV, AVI, WebM, FLV, WMV"
+          />
+          {!isFFmpegLoaded() && <FFmpegNotice />}
+          <div className="info-box">
+            <VideoIcon className="w-5 h-5 mt-0.5" />
+            <div className="text-sm">
+              <p className="font-bold text-foreground mb-1">{isInstant ? "Instant extraction" : "Manual mode"}</p>
+              <p className="text-muted-foreground">
+                {isInstant
+                  ? "Drop a video and audio will be extracted as MP3 automatically."
+                  : "Drop a video, choose format and quality, then extract."}
+              </p>
+            </div>
+          </div>
+        </div>
       ) : (
         <div className="space-y-4">
-          <AudioFileInfo
-            file={file}
-            onClear={handleStartOver}
-            icon={<VideoIcon className="w-5 h-5 shrink-0" />}
-          />
+          <AudioFileInfo file={file} onClear={handleClear} icon={<VideoIcon className="w-5 h-5" />} />
 
           <div className="border-2 border-foreground p-4 bg-card space-y-4">
             <div className="space-y-2">
@@ -156,15 +171,11 @@ export default function ExtractAudioPage() {
                     key={fmt.value}
                     onClick={() => setOutputFormat(fmt.value)}
                     className={`p-2 border-2 text-center transition-all ${
-                      outputFormat === fmt.value
-                        ? "border-foreground bg-foreground text-background"
-                        : "border-foreground/30 hover:border-foreground"
+                      outputFormat === fmt.value ? "border-foreground bg-foreground text-background" : "border-foreground/30 hover:border-foreground"
                     }`}
                   >
                     <span className="block font-bold text-sm">{fmt.label}</span>
-                    <span className={`block text-xs ${outputFormat === fmt.value ? "text-background/70" : "text-muted-foreground"}`}>
-                      {fmt.desc}
-                    </span>
+                    <span className={`block text-xs ${outputFormat === fmt.value ? "text-background/70" : "text-muted-foreground"}`}>{fmt.desc}</span>
                   </button>
                 ))}
               </div>
@@ -179,15 +190,10 @@ export default function ExtractAudioPage() {
                       key={br.value}
                       onClick={() => setBitrate(br.value)}
                       className={`flex-1 px-2 py-2 text-center border-2 transition-all ${
-                        bitrate === br.value
-                          ? "border-foreground bg-foreground text-background"
-                          : "border-foreground/30 hover:border-foreground"
+                        bitrate === br.value ? "border-foreground bg-foreground text-background" : "border-foreground/30 hover:border-foreground"
                       }`}
                     >
                       <span className="block text-sm font-bold">{br.value}</span>
-                      <span className={`block text-xs ${bitrate === br.value ? "text-background/70" : "text-muted-foreground"}`}>
-                        {br.desc}
-                      </span>
                     </button>
                   ))}
                 </div>
@@ -196,20 +202,13 @@ export default function ExtractAudioPage() {
           </div>
 
           {!isFFmpegLoaded() && <FFmpegNotice />}
-
           {error && <ErrorBox message={error} />}
-
-          {isProcessing && (
-            <ProgressBar
-              progress={progress}
-              label={processingState === "loading-ffmpeg" ? "Loading audio engine..." : "Extracting audio..."}
-            />
-          )}
+          {isProcessing && <ProgressBar progress={progress} label={processingStatus} />}
 
           <ProcessButton
-            onClick={handleExtract}
+            onClick={() => processFile(file, outputFormat, bitrate)}
             isProcessing={isProcessing}
-            processingLabel={processingState === "loading-ffmpeg" ? "Loading..." : "Extracting..."}
+            processingLabel="Extracting..."
             icon={<ExtractIcon className="w-5 h-5" />}
             label="Extract Audio"
           />

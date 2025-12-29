@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
-import { applyFade, downloadAudio, formatFileSize, getAudioInfo } from "@/lib/audio-utils";
+import { applyFade, formatFileSize, getAudioInfo } from "@/lib/audio-utils";
 import { FadeIcon } from "@/components/icons";
 import {
   ErrorBox,
@@ -11,6 +11,8 @@ import {
   AudioFileInfo,
   AudioPageHeader,
 } from "@/components/audio/shared";
+import { AudioPlayer } from "@/components/audio/AudioPlayer";
+import { useAudioResult } from "@/hooks/useAudioResult";
 
 export default function FadeAudioPage() {
   const [file, setFile] = useState<File | null>(null);
@@ -18,9 +20,11 @@ export default function FadeAudioPage() {
   const [duration, setDuration] = useState(0);
   const [fadeIn, setFadeIn] = useState(1);
   const [fadeOut, setFadeOut] = useState(1);
+  const [usedFadeIn, setUsedFadeIn] = useState(1);
+  const [usedFadeOut, setUsedFadeOut] = useState(1);
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<Blob | null>(null);
+  const { result, setResult, clearResult, download } = useAudioResult();
 
   useEffect(() => {
     return () => {
@@ -33,7 +37,7 @@ export default function FadeAudioPage() {
       const selectedFile = files[0];
       setFile(selectedFile);
       setError(null);
-      setResult(null);
+      clearResult();
 
       try {
         const info = await getAudioInfo(selectedFile);
@@ -45,7 +49,7 @@ export default function FadeAudioPage() {
         setError("Failed to load audio file.");
       }
     }
-  }, [audioUrl]);
+  }, [audioUrl, clearResult]);
 
   const handleProcess = async () => {
     if (!file) return;
@@ -54,7 +58,10 @@ export default function FadeAudioPage() {
 
     try {
       const processed = await applyFade(file, fadeIn, fadeOut);
-      setResult(processed);
+      const baseName = file.name.split(".").slice(0, -1).join(".");
+      setResult(processed, `${baseName}_fade.wav`);
+      setUsedFadeIn(fadeIn);
+      setUsedFadeOut(fadeOut);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to apply fade");
     } finally {
@@ -62,18 +69,11 @@ export default function FadeAudioPage() {
     }
   };
 
-  const handleDownload = () => {
-    if (result && file) {
-      const baseName = file.name.split(".").slice(0, -1).join(".");
-      downloadAudio(result, `${baseName}_fade.wav`);
-    }
-  };
-
   const handleStartOver = () => {
     if (audioUrl) URL.revokeObjectURL(audioUrl);
+    clearResult();
     setFile(null);
     setAudioUrl(null);
-    setResult(null);
     setError(null);
     setFadeIn(1);
     setFadeOut(1);
@@ -94,12 +94,14 @@ export default function FadeAudioPage() {
         <SuccessCard
           stampText="Done"
           title="Fade Applied!"
-          subtitle={`Fade in: ${fadeIn}s • Fade out: ${fadeOut}s • ${formatFileSize(result.size)}`}
+          subtitle={`Fade in: ${usedFadeIn}s • Fade out: ${usedFadeOut}s • ${formatFileSize(result.blob.size)}`}
           downloadLabel="Download Audio"
-          onDownload={handleDownload}
+          onDownload={download}
           onStartOver={handleStartOver}
           startOverLabel="Process Another"
-        />
+        >
+          <AudioPlayer src={result.url} />
+        </SuccessCard>
       ) : !file ? (
         <FileDropzone
           accept=".mp3,.wav,.ogg,.m4a,.webm"
@@ -112,7 +114,7 @@ export default function FadeAudioPage() {
         <div className="space-y-6">
           <AudioFileInfo file={file} duration={duration} onClear={handleStartOver} />
 
-          {audioUrl && <audio controls src={audioUrl} className="w-full" />}
+          {audioUrl && <AudioPlayer src={audioUrl} />}
 
           <div className="space-y-4">
             <div className="space-y-2">
