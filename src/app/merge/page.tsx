@@ -4,6 +4,7 @@ import { useState, useCallback } from "react";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import { FileList } from "@/components/pdf/file-list";
 import { mergePDFs, downloadBlob } from "@/lib/pdf-utils";
+import { formatFileSize } from "@/lib/utils";
 import { MergeIcon, LoaderIcon } from "@/components/icons";
 import { PdfPageHeader, ErrorBox, ProgressBar, SuccessCard } from "@/components/pdf/shared";
 
@@ -17,12 +18,6 @@ interface MergeResult {
   filename: string;
   originalCount: number;
   totalSize: number;
-}
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return bytes + " B";
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-  return (bytes / 1024 / 1024).toFixed(2) + " MB";
 }
 
 export default function MergePage() {

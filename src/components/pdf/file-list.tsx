@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { cn } from "@/lib/utils";
+import { cn, formatFileSize } from "@/lib/utils";
 import { GripIcon, XIcon, PdfIcon } from "@/components/icons";
 
 interface FileItem {
@@ -14,12 +14,6 @@ interface FileListProps {
   onRemove: (id: string) => void;
   onReorder?: (fromIndex: number, toIndex: number) => void;
   onClear: () => void;
-}
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return bytes + " B";
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-  return (bytes / 1024 / 1024).toFixed(1) + " MB";
 }
 
 export function FileList({ files, onRemove, onReorder, onClear }: FileListProps) {

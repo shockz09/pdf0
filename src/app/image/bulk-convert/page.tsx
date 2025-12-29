@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import { convertFormat, downloadImage, formatFileSize, ImageFormat } from "@/lib/image-utils";
+import { IMAGE_FORMATS_BULK } from "@/lib/constants";
 import { BulkIcon, DownloadIcon, LoaderIcon, ImageIcon } from "@/components/icons";
 import { ImagePageHeader, ErrorBox, ProgressBar } from "@/components/image/shared";
 
@@ -16,12 +17,6 @@ interface ConvertedItem {
   blob: Blob;
   filename: string;
 }
-
-const formats: { value: ImageFormat; label: string; ext: string }[] = [
-  { value: "jpeg", label: "JPEG", ext: "jpg" },
-  { value: "png", label: "PNG", ext: "png" },
-  { value: "webp", label: "WebP", ext: "webp" },
-];
 
 export default function BulkConvertPage() {
   const [files, setFiles] = useState<FileItem[]>([]);
@@ -51,7 +46,7 @@ export default function BulkConvertPage() {
     setProgress({ current: 0, total: files.length });
 
     const converted: ConvertedItem[] = [];
-    const ext = formats.find((f) => f.value === targetFormat)?.ext || targetFormat;
+    const ext = IMAGE_FORMATS_BULK.find((f) => f.value === targetFormat)?.ext || targetFormat;
     const BATCH_SIZE = 5;
 
     try {
@@ -152,7 +147,7 @@ export default function BulkConvertPage() {
               <div className="space-y-3">
                 <label className="input-label">Convert to</label>
                 <div className="grid grid-cols-3 gap-2">
-                  {formats.map((format) => (
+                  {IMAGE_FORMATS_BULK.map((format) => (
                     <button key={format.value} onClick={() => setTargetFormat(format.value)} className={`px-4 py-3 text-sm font-bold border-2 border-foreground transition-colors ${targetFormat === format.value ? "bg-foreground text-background" : "hover:bg-muted"}`}>
                       {format.label}
                     </button>

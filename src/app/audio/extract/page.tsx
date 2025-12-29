@@ -4,6 +4,7 @@ import { useState, useCallback } from "react";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import { extractAudioFromVideo, isFFmpegLoaded, ExtractOutputFormat } from "@/lib/ffmpeg-utils";
 import { formatFileSize, downloadAudio } from "@/lib/audio-utils";
+import { AUDIO_BITRATES } from "@/lib/constants";
 import { ExtractIcon, VideoIcon, DownloadIcon } from "@/components/icons";
 import {
   FFmpegNotice,
@@ -19,13 +20,6 @@ const outputFormats: { value: ExtractOutputFormat; label: string; desc: string }
   { value: "wav", label: "WAV", desc: "Lossless, larger" },
   { value: "ogg", label: "OGG", desc: "Open format" },
   { value: "flac", label: "FLAC", desc: "Lossless, compressed" },
-];
-
-const bitrates = [
-  { value: 128, label: "128", desc: "Standard" },
-  { value: 192, label: "192", desc: "High" },
-  { value: 256, label: "256", desc: "Very High" },
-  { value: 320, label: "320", desc: "Maximum" },
 ];
 
 type ProcessingState = "idle" | "loading-ffmpeg" | "extracting";
@@ -180,7 +174,7 @@ export default function ExtractAudioPage() {
               <div className="space-y-2 pt-2 border-t border-foreground/10">
                 <label className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Quality (kbps)</label>
                 <div className="flex gap-1">
-                  {bitrates.map((br) => (
+                  {AUDIO_BITRATES.map((br) => (
                     <button
                       key={br.value}
                       onClick={() => setBitrate(br.value)}

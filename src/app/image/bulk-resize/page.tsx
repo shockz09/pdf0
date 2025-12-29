@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import { resizeImage, downloadImage, formatFileSize, getOutputFilename } from "@/lib/image-utils";
+import { IMAGE_RESIZE_PRESETS } from "@/lib/constants";
 import { BulkIcon, DownloadIcon, LoaderIcon, ImageIcon } from "@/components/icons";
 import { ImagePageHeader, ErrorBox, ProgressBar } from "@/components/image/shared";
 
@@ -16,13 +17,6 @@ interface ResizedItem {
   blob: Blob;
   filename: string;
 }
-
-const presets = [
-  { label: "HD (1280×720)", width: 1280, height: 720 },
-  { label: "Full HD (1920×1080)", width: 1920, height: 1080 },
-  { label: "Instagram (1080×1080)", width: 1080, height: 1080 },
-  { label: "Thumbnail (300×300)", width: 300, height: 300 },
-];
 
 export default function BulkResizePage() {
   const [files, setFiles] = useState<FileItem[]>([]);
@@ -151,7 +145,7 @@ export default function BulkResizePage() {
               <div className="space-y-3">
                 <label className="input-label">Quick Presets</label>
                 <div className="grid grid-cols-2 gap-2">
-                  {presets.map((preset) => (
+                  {IMAGE_RESIZE_PRESETS.map((preset) => (
                     <button key={preset.label} onClick={() => applyPreset(preset)} className="px-3 py-2 text-xs font-bold border-2 border-foreground hover:bg-foreground hover:text-background transition-colors text-left">
                       {preset.label}
                     </button>

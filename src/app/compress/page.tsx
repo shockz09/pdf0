@@ -3,14 +3,9 @@
 import { useState, useCallback } from "react";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import { compressPDF, downloadBlob } from "@/lib/pdf-utils";
+import { formatFileSize } from "@/lib/utils";
 import { CompressIcon, PdfIcon } from "@/components/icons";
 import { PdfPageHeader, ErrorBox, ProgressBar, SuccessCard, PdfFileInfo, ComparisonDisplay, SavingsBadge } from "@/components/pdf/shared";
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return bytes + " B";
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-  return (bytes / 1024 / 1024).toFixed(2) + " MB";
-}
 
 interface CompressResult {
   data: Uint8Array;

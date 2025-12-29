@@ -322,14 +322,8 @@ export function downloadAudio(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
-// Format file size
-export function formatFileSize(bytes: number): string {
-  if (bytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
-}
+// Re-export formatFileSize from shared utils
+export { formatFileSize } from "./utils";
 
 // Convert AudioBuffer to MP3 using lamejs
 export function audioBufferToMp3(buffer: AudioBuffer, bitrate: number = 128): Blob {
