@@ -8,7 +8,7 @@ const STORAGE_KEY = "noupload-instant-mode";
 let globalListeners: Set<(value: boolean) => void> = new Set();
 
 export function useInstantMode() {
-  const [isInstant, setIsInstant] = useState(true);
+  const [isInstant, setIsInstant] = useState(false); // Default OFF for new users
   const [isLoaded, setIsLoaded] = useState(false);
 
   useEffect(() => {
@@ -16,6 +16,7 @@ export function useInstantMode() {
     if (stored !== null) {
       setIsInstant(stored === "true");
     }
+    // Default stays false if nothing stored
     setIsLoaded(true);
 
     // Subscribe to global changes
