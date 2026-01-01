@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Onest:wght@300;400;500;600;700;800&display=swap');
+/* Fonts loaded in layout.tsx with crossorigin for COEP compatibility */
 @import "tailwindcss";
 @import "tw-animate-css";
 
