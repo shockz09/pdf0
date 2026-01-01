@@ -151,7 +151,7 @@ export default function QRGeneratePage() {
   });
   const [emailData, setEmailData] = useState({ to: "", subject: "", body: "" });
   const [smsData, setSmsData] = useState({ phone: "", message: "" });
-  const [upiData, setUpiData] = useState<UpiData>({ vpa: "", name: "", amount: "", note: "" });
+  const [upiData, setUpiData] = useState<UpiData>({ vpa: "", amount: "", note: "" });
   const [qrImage, setQrImage] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -186,7 +186,7 @@ export default function QRGeneratePage() {
       case "email": return emailData.to.trim().length > 0;
       case "phone": return phoneValue.trim().length > 0;
       case "sms": return smsData.phone.trim().length > 0;
-      case "upi": return upiData.vpa.includes("@") && upiData.name.trim().length > 0;
+      case "upi": return upiData.vpa.includes("@");
       default: return false;
     }
   }, [dataType, textValue, urlValue, wifiData, emailData, phoneValue, smsData, upiData]);
@@ -477,30 +477,18 @@ export default function QRGeneratePage() {
 
             {dataType === "upi" && (
               <div className="space-y-4">
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="input-label">UPI ID (VPA) *</label>
-                    <input
-                      type="text"
-                      value={upiData.vpa}
-                      onChange={(e) => setUpiData({ ...upiData, vpa: e.target.value })}
-                      placeholder="username@bankname"
-                      className="input-field w-full"
-                    />
-                    {upiData.vpa && !upiData.vpa.includes("@") && (
-                      <p className="text-xs text-red-500">UPI ID must contain @</p>
-                    )}
-                  </div>
-                  <div className="space-y-2">
-                    <label className="input-label">Payee Name *</label>
-                    <input
-                      type="text"
-                      value={upiData.name}
-                      onChange={(e) => setUpiData({ ...upiData, name: e.target.value })}
-                      placeholder="Your Name"
-                      className="input-field w-full"
-                    />
-                  </div>
+                <div className="space-y-2">
+                  <label className="input-label">UPI ID (VPA) *</label>
+                  <input
+                    type="text"
+                    value={upiData.vpa}
+                    onChange={(e) => setUpiData({ ...upiData, vpa: e.target.value })}
+                    placeholder="username@bankname"
+                    className="input-field w-full"
+                  />
+                  {upiData.vpa && !upiData.vpa.includes("@") && (
+                    <p className="text-xs text-red-500">UPI ID must contain @</p>
+                  )}
                 </div>
                 <div className="grid sm:grid-cols-2 gap-4">
                   <div className="space-y-2">

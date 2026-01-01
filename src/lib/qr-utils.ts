@@ -24,7 +24,6 @@ export interface SmsData {
 
 export interface UpiData {
   vpa: string;       // UPI ID e.g. username@bankname
-  name: string;      // Payee name
   amount?: string;   // Optional fixed amount
   note?: string;     // Transaction note
 }
@@ -69,13 +68,11 @@ export function generatePhoneString(phone: string): string {
 
 // Generate UPI QR string
 export function generateUpiString(data: UpiData): string {
-  const params = new URLSearchParams();
-  params.set("pa", data.vpa);
-  params.set("pn", data.name);
-  if (data.amount) params.set("am", data.amount);
-  if (data.note) params.set("tn", data.note);
-  params.set("cu", "INR");
-  return `upi://pay?${params.toString()}`;
+  const parts = [`pa=${encodeURIComponent(data.vpa)}`];
+  if (data.amount) parts.push(`am=${encodeURIComponent(data.amount)}`);
+  if (data.note) parts.push(`tn=${encodeURIComponent(data.note)}`);
+  parts.push("cu=INR");
+  return `upi://pay?${parts.join("&")}`;
 }
 
 // Generate QR code as data URL
