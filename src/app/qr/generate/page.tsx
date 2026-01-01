@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import Link from "next/link";
 import {
   generateQRDataURL,
@@ -18,7 +18,7 @@ import {
   UpiData,
   QR_COLOR_PRESETS,
 } from "@/lib/qr-utils";
-import { ArrowLeftIcon, DownloadIcon, LoaderIcon, CopyIcon } from "@/components/icons";
+import { ArrowLeftIcon, DownloadIcon, CopyIcon } from "@/components/icons";
 import { copyImageToClipboard } from "@/lib/image-utils";
 import { useRef } from "react";
 
@@ -153,7 +153,6 @@ export default function QRGeneratePage() {
   const [smsData, setSmsData] = useState({ phone: "", message: "" });
   const [upiData, setUpiData] = useState<UpiData>({ vpa: "", amount: "", note: "" });
   const [qrImage, setQrImage] = useState<string | null>(null);
-  const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Customization
@@ -192,33 +191,6 @@ export default function QRGeneratePage() {
   }, [dataType, textValue, urlValue, wifiData, emailData, phoneValue, smsData, upiData]);
 
   const colorOptions = { color: { dark: darkColor, light: lightColor } };
-
-  const handleGenerate = async () => {
-    if (!isInputValid()) return;
-    setIsGenerating(true);
-    setError(null);
-
-    try {
-      const data = getDataString();
-      let dataUrl: string;
-
-      if (logo) {
-        dataUrl = await generateQRWithLogo(data, logo, {
-          width: 400,
-          ...colorOptions,
-          logoPadding,
-        });
-      } else {
-        dataUrl = await generateQRDataURL(data, { width: 400, ...colorOptions });
-      }
-
-      setQrImage(dataUrl);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to generate QR code");
-    } finally {
-      setIsGenerating(false);
-    }
-  };
 
   const handleDownload = async () => {
     if (!qrImage) return;
@@ -284,11 +256,41 @@ export default function QRGeneratePage() {
   const applyPreset = (preset: typeof QR_COLOR_PRESETS[0]) => {
     setDarkColor(preset.dark);
     setLightColor(preset.light);
-    setQrImage(null);
   };
 
+  // Auto-generate QR on input change (debounced)
+  useEffect(() => {
+    if (!isInputValid()) {
+      setQrImage(null);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      try {
+        const data = getDataString();
+        let dataUrl: string;
+
+        if (logo) {
+          dataUrl = await generateQRWithLogo(data, logo, {
+            width: 400,
+            ...colorOptions,
+            logoPadding,
+          });
+        } else {
+          dataUrl = await generateQRDataURL(data, { width: 400, ...colorOptions });
+        }
+
+        setQrImage(dataUrl);
+      } catch {
+        // Silently fail for auto-generation
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [getDataString, isInputValid, logo, logoPadding, darkColor, lightColor, colorOptions]);
+
   return (
-    <div className="page-enter space-y-8">
+    <div className="page-enter max-w-6xl mx-auto space-y-8">
       <Link
         href="/qr"
         className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
@@ -303,16 +305,53 @@ export default function QRGeneratePage() {
         </div>
         <div>
           <h1 className="text-3xl sm:text-4xl font-display">Generate QR Code</h1>
-          <p className="text-muted-foreground mt-2">Create QR codes for text, URLs, WiFi, and more</p>
+          <p className="text-muted-foreground mt-2">Create QR codes for text, URLs, WiFi, UPI, and more</p>
         </div>
       </div>
 
-      <div className="border-2 border-foreground bg-card">
-        <div className="p-6 space-y-6">
-          {/* Data Type Selection */}
-          <div className="space-y-3">
-            <label className="input-label">Content Type</label>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
+      <div className="grid lg:grid-cols-2 gap-8">
+        {/* Left Column: QR Preview */}
+        <div className="space-y-4">
+          <div className="p-6 bg-card border-2 border-foreground">
+            <div className="flex flex-col items-center justify-center min-h-[320px]">
+              {qrImage ? (
+                <div className="bg-white p-6 border-2 border-foreground shadow-[6px_6px_0_0_#1A1612]">
+                  <img src={qrImage} alt="Generated QR Code" className="w-56 h-56" />
+                </div>
+              ) : (
+                <div className="text-center text-muted-foreground">
+                  <QRIcon className="w-24 h-24 mx-auto mb-4 opacity-20" />
+                  <p className="font-medium">QR code preview</p>
+                  <p className="text-sm">Fill in the details and click Generate</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Download buttons - only show when QR exists */}
+          {qrImage && (
+            <div className="flex gap-2 animate-fade-up">
+              <button onClick={handleDownload} className="btn-success flex-1">
+                <DownloadIcon className="w-5 h-5" />Download PNG
+              </button>
+              <button
+                onClick={handleCopy}
+                className="btn-success px-3"
+                title="Copy to clipboard"
+              >
+                <CopyIcon className="w-5 h-5" />
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Right Column: Controls */}
+        <div className="space-y-6">
+          <div className="p-6 bg-card border-2 border-foreground space-y-6">
+            {/* Data Type Selection */}
+            <div className="space-y-3">
+              <label className="input-label">Content Type</label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {dataTypes.map((type) => {
                 const Icon = type.icon;
                 return (
@@ -343,6 +382,7 @@ export default function QRGeneratePage() {
                   onChange={(e) => setTextValue(e.target.value)}
                   placeholder="Enter any text you want to encode..."
                   className="input-field w-full h-32 resize-none"
+                  autoFocus
                 />
               </div>
             )}
@@ -356,6 +396,7 @@ export default function QRGeneratePage() {
                   onChange={(e) => setUrlValue(e.target.value)}
                   placeholder="https://example.com"
                   className="input-field w-full"
+                  autoFocus
                 />
               </div>
             )}
@@ -370,6 +411,7 @@ export default function QRGeneratePage() {
                     onChange={(e) => setWifiData({ ...wifiData, ssid: e.target.value })}
                     placeholder="MyWiFiNetwork"
                     className="input-field w-full"
+                    autoFocus
                   />
                 </div>
                 <div className="space-y-2">
@@ -411,6 +453,7 @@ export default function QRGeneratePage() {
                     onChange={(e) => setEmailData({ ...emailData, to: e.target.value })}
                     placeholder="hello@example.com"
                     className="input-field w-full"
+                    autoFocus
                   />
                 </div>
                 <div className="grid sm:grid-cols-2 gap-4">
@@ -447,6 +490,7 @@ export default function QRGeneratePage() {
                   onChange={(e) => setPhoneValue(e.target.value)}
                   placeholder="+1 (555) 123-4567"
                   className="input-field w-full"
+                  autoFocus
                 />
               </div>
             )}
@@ -461,6 +505,7 @@ export default function QRGeneratePage() {
                     onChange={(e) => setSmsData({ ...smsData, phone: e.target.value })}
                     placeholder="+1 (555) 123-4567"
                     className="input-field w-full"
+                    autoFocus
                   />
                 </div>
                 <div className="space-y-2">
@@ -485,6 +530,7 @@ export default function QRGeneratePage() {
                     onChange={(e) => setUpiData({ ...upiData, vpa: e.target.value })}
                     placeholder="username@bankname"
                     className="input-field w-full"
+                    autoFocus
                   />
                   {upiData.vpa && !upiData.vpa.includes("@") && (
                     <p className="text-xs text-red-500">UPI ID must contain @</p>
@@ -616,48 +662,14 @@ export default function QRGeneratePage() {
           </div>
 
           {error && (
-            <div className="error-box animate-shake">
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
-              </svg>
-              <span className="font-medium">{error}</span>
-            </div>
-          )}
-
-          <button
-            onClick={handleGenerate}
-            disabled={!isInputValid() || isGenerating}
-            className="btn-primary w-full"
-          >
-            {isGenerating ? (
-              <><LoaderIcon className="w-5 h-5" />Generating...</>
-            ) : (
-              <><QRIcon className="w-5 h-5" />Generate QR Code</>
+              <div className="error-box animate-shake">
+                <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10" /><line x1="12" y1="8" x2="12" y2="12" /><line x1="12" y1="16" x2="12.01" y2="16" />
+                </svg>
+                <span className="font-medium">{error}</span>
+              </div>
             )}
-          </button>
-
-          {/* QR Code Result */}
-          {qrImage && (
-            <div className="pt-6 border-t-2 border-foreground space-y-6 animate-fade-up">
-              <div className="flex flex-col items-center">
-                <div className="bg-white p-4 sm:p-8 border-2 border-foreground shadow-[4px_4px_0_0_#1A1612] sm:shadow-[8px_8px_0_0_#1A1612]">
-                  <img src={qrImage} alt="Generated QR Code" className="w-48 h-48 sm:w-64 sm:h-64" />
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <button onClick={handleDownload} className="btn-success flex-1">
-                  <DownloadIcon className="w-5 h-5" />Download PNG (High Resolution)
-                </button>
-                <button
-                  onClick={handleCopy}
-                  className="btn-success px-3"
-                  title="Copy to clipboard"
-                >
-                  <CopyIcon className="w-5 h-5" />
-                </button>
-              </div>
-            </div>
-          )}
+          </div>
         </div>
       </div>
     </div>
