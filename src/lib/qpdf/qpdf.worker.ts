@@ -34,11 +34,8 @@ async function cachedFetch(url: string): Promise<Response> {
   let response = await cache.match(url);
 
   if (!response) {
-    console.log('[qpdf worker] Cache miss, fetching:', url);
     response = await fetch(url);
     await cache.put(url, response.clone());
-  } else {
-    console.log('[qpdf worker] Cache hit:', url);
   }
 
   return response;
@@ -99,7 +96,7 @@ async function initQpdf(): Promise<void> {
         // Directory may exist
       }
 
-      console.log('[qpdf worker] Module initialized successfully');
+      // Module initialized
     } catch (error) {
       console.error('[qpdf worker] Init error:', error);
       initPromise = null;

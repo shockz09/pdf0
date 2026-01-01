@@ -50,8 +50,8 @@ export default function WaveformPage() {
   const [file, setFile] = useState<File | null>(null);
   const [duration, setDuration] = useState(0);
   const [waveformData, setWaveformData] = useState<number[]>([]);
-  const [waveformColor, setWaveformColor] = useState(waveformColors[0].color);
-  const [bgColor, setBgColor] = useState(backgroundColors[0].color);
+  const [waveformColor, setWaveformColor] = useState(waveformColors[1].color); // Crimson
+  const [bgColor, setBgColor] = useState(backgroundColors[11].color); // Black
   const [exportSize, setExportSize] = useState(exportSizes[0]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
