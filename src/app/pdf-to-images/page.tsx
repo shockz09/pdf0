@@ -10,6 +10,7 @@ import {
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import { usePdfPages } from "@/components/pdf/pdf-page-preview";
 import { ErrorBox, PdfFileInfo, PdfPageHeader } from "@/components/pdf/shared";
+import { useInstantMode } from "@/components/shared/InstantModeToggle";
 import {
 	type ConvertedImage,
 	downloadImage,
@@ -84,6 +85,7 @@ const QUALITY_SETTINGS: Record<
 };
 
 export default function PdfToImagesPage() {
+	const { isInstant } = useInstantMode();
 	const [file, setFile] = useState<File | null>(null);
 	const [isProcessing, setIsProcessing] = useState(false);
 	const [progress, setProgress] = useState(0);
@@ -94,6 +96,7 @@ export default function PdfToImagesPage() {
 	const [format, setFormat] = useState<ImageFormat>("jpeg");
 	const [quality, setQuality] = useState<ImageQuality>("medium");
 	const processingRef = useRef(false);
+	const instantTriggeredRef = useRef(false);
 
 	const { pages, loading: pagesLoading } = usePdfPages(file, 0.3);
 
@@ -116,10 +119,49 @@ export default function PdfToImagesPage() {
 		);
 	}
 
+	// Process all pages with default settings (for instant mode)
+	const processAllPages = useCallback(async () => {
+		if (!file || processingRef.current || pages.length === 0) return;
+
+		processingRef.current = true;
+		setIsProcessing(true);
+		setProgress(0);
+		setError(null);
+
+		try {
+			const settings = QUALITY_SETTINGS.medium;
+			const result = await pdfToImages(file, {
+				format: "jpeg",
+				quality: settings.quality,
+				scale: settings.scale,
+				pageNumbers: pages.map((p) => p.pageNumber),
+				rotations: {},
+				onProgress: (current, total) => {
+					setProgress(Math.round((current / total) * 100));
+				},
+			});
+			setImages(result);
+		} catch (err) {
+			setError(err instanceof Error ? err.message : "Failed to convert PDF");
+		} finally {
+			setIsProcessing(false);
+			processingRef.current = false;
+		}
+	}, [file, pages]);
+
+	// Instant mode: auto-convert when pages are loaded
+	useEffect(() => {
+		if (isInstant && file && pages.length > 0 && !instantTriggeredRef.current && !isProcessing && images.length === 0) {
+			instantTriggeredRef.current = true;
+			processAllPages();
+		}
+	}, [isInstant, file, pages, isProcessing, images.length, processAllPages]);
+
 	const handleFileSelected = useCallback(
 		(files: File[]) => {
 			if (files.length > 0) {
 				images.forEach((img) => URL.revokeObjectURL(img.dataUrl));
+				instantTriggeredRef.current = false;
 				setFile(files[0]);
 				setError(null);
 				setImages([]);
@@ -131,6 +173,7 @@ export default function PdfToImagesPage() {
 
 	const handleClear = useCallback(() => {
 		images.forEach((img) => URL.revokeObjectURL(img.dataUrl));
+		instantTriggeredRef.current = false;
 		setFile(null);
 		setError(null);
 		setImages([]);
@@ -220,6 +263,7 @@ export default function PdfToImagesPage() {
 
 	const handleNewFile = () => {
 		images.forEach((img) => URL.revokeObjectURL(img.dataUrl));
+		instantTriggeredRef.current = false;
 		setFile(null);
 		setImages([]);
 		setError(null);

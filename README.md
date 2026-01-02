@@ -14,6 +14,14 @@ So I built my own with better design and UX which could actually be used in prod
 
 After some days of building noupload with just PDF tools, I was randomly researching what more stuff we could do client-side. I figured out that just like we could do most of the PDF manipulation stuff client-side, we could also do the same with images, and audio too—though audio is way heavier because FFmpeg is massive, but it still works. So I built the pages for these with many tools in them. A lot of days were spent figuring out the proper flow of everything, but they both turned out pretty well and became worthy additions to noupload. Hence, noupload became a suite, and then I added QR functionality too for people who want to generate/scan/bulk generate or custom design QR codes etc. I also added Encrypt/Decrypt PDF later after figuring out about qpdf-wasm, it's amazing, allows us to do encryption and decryption client-side with ease.
 
+**Q: Why is there a ⚡ icon, what's its purpose?**
+
+While making this tool, I realised that for tasks like PDF → Images, it feels like friction when I upload a PDF and then still have to click "Convert" to get the images. So I experimented with this new UX where enabling this mode removes one layer of friction—for tasks where it makes sense, it just gets straight to the result without that extra click.
+
+I added this to pages which actually allowed it, because obviously you can't remove this friction everywhere. Like for Images → PDF, we can't know when the user is done uploading all the pages they want, but for PDF → Images, we know there's one PDF uploaded so we can skip straight to converting. Another example is HEIC → JPEG in the image tools—just upload and get your JPEG. Same with Strip Metadata—upload the image and it's done, no need for a useless "Remove Metadata" button click.
+
+This works well because everything is processed client-side anyway, so there's no risk of your file going somewhere by mistake—it never leaves your device.
+
 I would love if people would contribute and use this.
 
 ---
