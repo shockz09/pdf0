@@ -105,7 +105,7 @@ export default function DecryptPage() {
 		<div className="page-enter max-w-2xl mx-auto space-y-8">
 			<PdfPageHeader
 				icon={<UnlockIcon className="w-7 h-7" />}
-				iconClass="tool-security"
+				iconClass="tool-decrypt"
 				title="Decrypt PDF"
 				description="Remove password protection from your PDF"
 			/>

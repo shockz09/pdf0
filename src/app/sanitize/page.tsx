@@ -128,7 +128,7 @@ export default function SanitizePage() {
 		<div className="page-enter max-w-2xl mx-auto space-y-8">
 			<PdfPageHeader
 				icon={<SanitizeIcon className="w-7 h-7" />}
-				iconClass="tool-security"
+				iconClass="tool-sanitize"
 				title="Sanitize PDF"
 				description="Remove metadata, author info, and hidden data"
 			/>

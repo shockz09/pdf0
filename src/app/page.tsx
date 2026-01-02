@@ -116,7 +116,7 @@ const tools = [
 		href: "/sanitize",
 		icon: SanitizeIcon,
 		category: "security",
-		colorClass: "tool-security",
+		colorClass: "tool-sanitize",
 	},
 	{
 		title: "Encrypt PDF",
@@ -124,7 +124,7 @@ const tools = [
 		href: "/encrypt",
 		icon: LockIcon,
 		category: "security",
-		colorClass: "tool-security",
+		colorClass: "tool-encrypt",
 	},
 	{
 		title: "Decrypt PDF",
@@ -132,7 +132,7 @@ const tools = [
 		href: "/decrypt",
 		icon: UnlockIcon,
 		category: "security",
-		colorClass: "tool-security",
+		colorClass: "tool-decrypt",
 	},
 	{
 		title: "Reverse Pages",

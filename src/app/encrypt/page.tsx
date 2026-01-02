@@ -127,7 +127,7 @@ export default function EncryptPage() {
 		<div className="page-enter max-w-2xl mx-auto space-y-8">
 			<PdfPageHeader
 				icon={<LockIcon className="w-7 h-7" />}
-				iconClass="tool-security"
+				iconClass="tool-encrypt"
 				title="Encrypt PDF"
 				description="Add password protection to your PDF documents"
 			/>
