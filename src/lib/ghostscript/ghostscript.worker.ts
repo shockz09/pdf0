@@ -62,22 +62,39 @@ async function initGs(id: string): Promise<void> {
 
       let scriptText = await response.text();
 
-      // Fix the script for worker context
-      // Remove ES module export if present
-      scriptText = scriptText.replace(/export\s+default\s+\w+\s*;?/g, "");
+      // Patch the script for worker context:
+      // 1. Replace import.meta.url with our CDN URL
+      scriptText = scriptText.replace(/import\.meta\.url/g, `"${jsUrl}"`);
 
-      // Fix _scriptName for worker context
+      // 2. Remove dynamic import of "module" (Node.js only)
       scriptText = scriptText.replace(
-        /var\s+_scriptName\s*=\s*typeof\s+document[^;]*;/,
-        `var _scriptName = "${jsUrl}";`,
+        /if\(l\)\{const\s*\{createRequire:a\}=await import\("module"\);var require=a\([^)]+\)\}/g,
+        "if(l){}"
       );
 
-      // Create function that returns the Module factory
-      // eslint-disable-next-line @typescript-eslint/no-implied-eval
-      const getModule = new Function(`${scriptText}; return Module;`);
-      const createModule = getModule() as (
-        options?: Record<string, unknown>,
-      ) => Promise<GsModule>;
+      // 3. Remove export statements (exact match for minified code)
+      scriptText = scriptText.replace(/export default Module;/g, "");
+      scriptText = scriptText.replace(/export\s*\{[^}]*\}\s*;?/g, "");
+      scriptText = scriptText.replace(/export\s+default\s+\w+\s*;?/g, "");
+
+      // 4. Wrap in async IIFE and expose Module globally
+      const wrappedScript = `
+        (async function() {
+          ${scriptText}
+          self.GsModule = Module;
+        })();
+      `;
+
+      // Execute via Blob URL (supports async/await unlike new Function)
+      const blob = new Blob([wrappedScript], { type: "application/javascript" });
+      const blobUrl = URL.createObjectURL(blob);
+
+      // Import as module
+      await import(/* webpackIgnore: true */ blobUrl);
+      URL.revokeObjectURL(blobUrl);
+
+      // Get the Module factory from global scope
+      const createModule = (self as unknown as { GsModule: (options?: Record<string, unknown>) => Promise<GsModule> }).GsModule;
 
       if (!createModule || typeof createModule !== "function") {
         throw new Error("Failed to load Ghostscript module");
@@ -107,6 +124,17 @@ async function initGs(id: string): Promise<void> {
   return initPromise;
 }
 
+// Quality settings for each compression level
+const QUALITY_SETTINGS: Record<GsCompressionPreset, {
+  imageQuality: number;
+  resolution: number;
+}> = {
+  printer: { imageQuality: 90, resolution: 200 },  // Light: ~30-50%
+  ebook: { imageQuality: 70, resolution: 120 },    // Balanced: ~50-80%
+  screen: { imageQuality: 40, resolution: 72 },    // Maximum: ~80-95%
+  prepress: { imageQuality: 95, resolution: 300 }, // Unused but defined
+};
+
 // Compress PDF with Ghostscript
 async function compressPdf(
   id: string,
@@ -124,14 +152,33 @@ async function compressPdf(
   // Write input file to virtual filesystem
   gsModule.FS.writeFile("/input.pdf", inputData);
 
-  // Build Ghostscript command
+  const settings = QUALITY_SETTINGS[preset];
+
+  // Build Ghostscript command with explicit quality settings
+  // This forces recompression regardless of source image DPI
   const args = [
     "-sDEVICE=pdfwrite",
     "-dCompatibilityLevel=1.4",
-    `-dPDFSETTINGS=/${preset}`,
     "-dNOPAUSE",
     "-dQUIET",
     "-dBATCH",
+    // Force image recompression
+    "-dColorImageDownsampleType=/Bicubic",
+    "-dGrayImageDownsampleType=/Bicubic",
+    "-dMonoImageDownsampleType=/Bicubic",
+    "-dDownsampleColorImages=true",
+    "-dDownsampleGrayImages=true",
+    "-dDownsampleMonoImages=true",
+    // Set target resolution
+    `-dColorImageResolution=${settings.resolution}`,
+    `-dGrayImageResolution=${settings.resolution}`,
+    `-dMonoImageResolution=${settings.resolution}`,
+    // Set JPEG quality (lower = smaller file)
+    `-dColorImageQuality=${settings.imageQuality}`,
+    `-dGrayImageQuality=${settings.imageQuality}`,
+    // Compress everything
+    "-dCompressPages=true",
+    "-dOptimize=true",
     "-sOutputFile=/output.pdf",
     "/input.pdf",
   ];
