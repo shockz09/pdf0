@@ -119,7 +119,7 @@ export default function CompressPage() {
 				icon={<CompressIcon className="w-7 h-7" />}
 				iconClass="tool-compress"
 				title="Compress PDF"
-				description="Reduce file size with Ghostscript-powered compression"
+				description="Reduce file size while preserving quality"
 			/>
 
 			{result ? (
@@ -198,12 +198,12 @@ export default function CompressPage() {
 						</svg>
 						<div className="text-sm">
 							<p className="font-bold text-foreground mb-1">
-								{isInstant ? "Instant compression" : "Powered by Ghostscript"}
+								{isInstant ? "Instant compression" : "About compression"}
 							</p>
 							<p className="text-muted-foreground">
 								{isInstant
 									? "Drop a PDF and it will be compressed automatically."
-									: "Real image recompression for major file size reduction. First use downloads ~16MB engine (cached)."}
+									: "Recompresses images for major file size reduction. First use may take longer to load."}
 							</p>
 						</div>
 					</div>
