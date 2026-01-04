@@ -10,9 +10,17 @@ No uploads. No servers. No tracking. Your files never leave your device.
 
 I saw many other similar client-side PDF tools which wanted to serve as a privacy-first alternative to [ilovepdf](https://www.ilovepdf.com/) etc, cuz most of the stuff that ilovepdf does can be done client-side and it should be. But the other tools which did this client-side were hastily built and their design and UX weren't thought through properly—it felt weird to use them even though they came up with the concept first.
 
-So I built my own with better design and UX which could actually be used in production as an alternative to ilovepdf for most of the functions, except some. Compression isn't the best because true PDF compression requires re-encoding images and fonts with native libraries that don't run well in browsers—so don't expect massive size reductions on image-heavy PDFs.
+So I built my own with better design and UX which could actually be used in production as an alternative to ilovepdf for most of the functions.
 
 After some days of building noupload with just PDF tools, I was randomly researching what more stuff we could do client-side. I figured out that just like we could do most of the PDF manipulation stuff client-side, we could also do the same with images, and audio too—though audio is way heavier because FFmpeg is massive, but it still works. So I built the pages for these with many tools in them. A lot of days were spent figuring out the proper flow of everything, but they both turned out pretty well and became worthy additions to noupload. Hence, noupload became a suite, and then I added QR functionality too for people who want to generate/scan/bulk generate or custom design QR codes etc. I also added Encrypt/Decrypt PDF later after figuring out about qpdf-wasm, it's amazing, allows us to do encryption and decryption client-side with ease.
+
+**Compression**
+
+Compression at first was just removing metadata which basically didn't do anything—it was pretty much useless. That's why the previous version of this README said PDF compression isn't up to the mark, not very good, etc. Then I researched and read up some stuff and figured that qpdf-wasm could do PDF compression, so I tried that. It didn't work that well either—qpdf can't actually recompress images, which is where most of the file size comes from.
+
+Then I researched more and figured out that [Ghostscript](https://ghostscript.com/) is the real deal for PDF compression. I stumbled upon [Playing around with Webassembly: Ghostscript](https://meyer-laurent.com/playing-around-webassembly-and-ghostscript) by [laurentmmeyer](https://github.com/laurentmmeyer), which was such an interesting read. He built [ghostscript-pdf-compress.wasm](https://github.com/laurentmmeyer/ghostscript-pdf-compress.wasm) because he wanted a privacy-first solution for compressing his hefty bank statement PDF—he didn't want to upload sensitive documents to random online compressors. So he compiled Ghostscript to WebAssembly and made it work entirely in the browser. His work was based on [ps-wasm](https://github.com/ochachacha/ps-wasm) by [ochachacha](https://github.com/ochachacha), the original Ghostscript WASM port.
+
+I was about to self-host from laurentmmeyer's repo, but then I found [@bentopdf/gs-wasm](https://www.npmjs.com/package/@bentopdf/gs-wasm)—a polished npm package that wraps Ghostscript WASM nicely. Tried it out, and it worked amazingly well. A 4.8MB PDF compressed to 480KB. So I merged it into main, and now noupload's PDF compression actually works—thanks to Ghostscript and all these awesome open source contributors!
 
 **Q: Why is there a ⚡ icon, what's its purpose?**
 

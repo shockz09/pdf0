@@ -105,8 +105,8 @@ async function initGs(id: string): Promise<void> {
       // Initialize module with WASM location
       gsModule = await createModule({
         locateFile: (filename: string) => `${CDN_BASE}/${filename}`,
-        print: (text: string) => {
-          console.log("[gs]", text);
+        print: () => {
+          // Ghostscript stdout - silenced
         },
         printErr: (text: string) => {
           console.error("[gs]", text);
