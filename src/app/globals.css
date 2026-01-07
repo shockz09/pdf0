@@ -424,6 +424,7 @@
 .tool-delete { --tool-color: #B91C1C; }
 .tool-grayscale { --tool-color: #4B5563; }
 .tool-pdfa { --tool-color: #1E40AF; }
+.tool-remove-bg { --tool-color: #7C3AED; }
 
 /* Image tool colors - deep, muted, earthy tones */
 .tool-image-compress { --tool-color: #166534; }

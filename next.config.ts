@@ -29,6 +29,14 @@ const nextConfig: NextConfig = {
 			},
 		];
 	},
+	async rewrites() {
+		return [
+			{
+				source: "/releases/:binary",
+				destination: "https://github.com/shockz09/nouploadcli/releases/latest/download/:binary",
+			},
+		];
+	},
 };
 
 export default nextConfig;

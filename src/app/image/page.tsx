@@ -13,6 +13,7 @@ import {
 	HeicIcon,
 	ImageCompressIcon,
 	MetadataIcon,
+	RemoveBgIcon,
 	ResizeIcon,
 	RotateIcon,
 	ScreenshotIcon,
@@ -36,6 +37,14 @@ const tools = [
 		icon: ScreenshotIcon,
 		category: "edit",
 		colorClass: "tool-screenshot",
+	},
+	{
+		title: "Remove Background",
+		description: "Remove image backgrounds with AI",
+		href: "/image/remove-bg",
+		icon: RemoveBgIcon,
+		category: "ai",
+		colorClass: "tool-remove-bg",
 	},
 	// Wave 1: Essential
 	{
@@ -170,6 +179,7 @@ const categoryLabels: Record<string, string> = {
 	convert: "Convert",
 	privacy: "Privacy",
 	bulk: "Bulk",
+	ai: "AI",
 };
 
 export default function ImagesPage() {

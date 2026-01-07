@@ -1443,3 +1443,27 @@ export function ArchiveIcon({
 		</svg>
 	);
 }
+
+export function RemoveBgIcon({
+	className = "w-6 h-6",
+}: {
+	className?: string;
+}) {
+	return (
+		<svg
+			aria-hidden="true"
+			className={className}
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			strokeWidth="1.75"
+			strokeLinecap="round"
+			strokeLinejoin="round"
+		>
+			<rect x="3" y="3" width="18" height="18" rx="2" />
+			<circle cx="12" cy="10" r="3" />
+			<path d="M7 21v-2a4 4 0 0 1 4-4h2a4 4 0 0 1 4 4v2" />
+			<path d="M1 1l22 22" strokeWidth="2" />
+		</svg>
+	);
+}
