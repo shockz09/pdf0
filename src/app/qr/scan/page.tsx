@@ -1,6 +1,5 @@
 "use client";
 
-import { Html5Qrcode } from "html5-qrcode";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ArrowLeftIcon, LoaderIcon } from "@/components/icons";
@@ -80,7 +79,8 @@ export default function QRScanPage() {
 	const [error, setError] = useState<string | null>(null);
 	const [copied, setCopied] = useState(false);
 	const [isProcessingFile, setIsProcessingFile] = useState(false);
-	const scannerRef = useRef<Html5Qrcode | null>(null);
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	const scannerRef = useRef<any>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
 	const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -123,6 +123,8 @@ export default function QRScanPage() {
 		setIsProcessingFile(true);
 
 		try {
+			// Lazy load html5-qrcode only when needed
+			const { Html5Qrcode } = await import("html5-qrcode");
 			const html5QrCode = new Html5Qrcode("qr-file-scanner");
 			const result = await html5QrCode.scanFile(file, true);
 			setScanResult(result);
@@ -157,6 +159,7 @@ export default function QRScanPage() {
 		setError(null);
 
 		try {
+			const { Html5Qrcode } = await import("html5-qrcode");
 			const html5QrCode = new Html5Qrcode(SCANNER_ID);
 			scannerRef.current = html5QrCode;
 

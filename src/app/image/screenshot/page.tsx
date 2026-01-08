@@ -1,6 +1,5 @@
 "use client";
 
-import { toPng } from "html-to-image";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
 	CopyIcon,
@@ -73,6 +72,8 @@ export default function ScreenshotBeautifierPage() {
 
 		setIsExporting(true);
 		try {
+			// Lazy load html-to-image only when needed
+			const { toPng } = await import("html-to-image");
 			const dataUrl = await toPng(canvasRef.current, {
 				cacheBust: true,
 				pixelRatio: 2,
@@ -96,6 +97,7 @@ export default function ScreenshotBeautifierPage() {
 	const handleCopy = async () => {
 		if (!canvasRef.current) return;
 		try {
+			const { toPng } = await import("html-to-image");
 			const dataUrl = await toPng(canvasRef.current, {
 				cacheBust: true,
 				pixelRatio: 2,
