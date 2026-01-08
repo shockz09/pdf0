@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useCallback, useRef, useState } from "react";
-import Tesseract from "tesseract.js";
 import {
 	ArrowLeftIcon,
 	DownloadIcon,
@@ -83,6 +82,9 @@ export default function OcrPage() {
 					}
 
 					setStatusText("Extracting text with OCR...");
+
+					// Lazy load Tesseract.js only when needed
+					const Tesseract = await import("tesseract.js");
 
 					const allText: string[] = [];
 

@@ -1,5 +1,4 @@
 // Audio processing utilities - all client-side using Web Audio API
-import lamejs from "@breezystack/lamejs";
 
 export interface AudioInfo {
 	duration: number;
@@ -384,10 +383,13 @@ export function downloadAudio(blob: Blob, filename: string): void {
 export { formatFileSize } from "./utils";
 
 // Convert AudioBuffer to MP3 using lamejs
-export function audioBufferToMp3(
+export async function audioBufferToMp3(
 	buffer: AudioBuffer,
 	bitrate: number = 128,
-): Blob {
+): Promise<Blob> {
+	// Lazy load lamejs only when converting to MP3
+	const lamejs = (await import("@breezystack/lamejs")).default;
+
 	const channels = buffer.numberOfChannels;
 	const sampleRate = buffer.sampleRate;
 	const mp3encoder = new lamejs.Mp3Encoder(
