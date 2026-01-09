@@ -25,21 +25,18 @@
       },
       "suspicious": {
         "noExplicitAny": "off",
-        "noArrayIndexKey": "off", // needed for drag-drop lists without stable IDs
-        "useIterableCallbackReturn": "off" // forEach with implicit return is common
+        "noArrayIndexKey": "off",
+        "useIterableCallbackReturn": "off"
       },
       "style": {
         "noNonNullAssertion": "off"
       },
       "performance": {
-        "noImgElement": "off" // blob URLs from user uploads don't work with Next.js Image
+        "noImgElement": "off"
       },
       "a11y": {
-        "useMediaCaption": "off", // captions for dynamically generated audio is impractical
-        "noAutofocus": "off", // intentional UX for tool input forms
-        // TODO: These require UX redesign to fix properly:
-        // - noStaticElementInteractions: drag-drop needs "move up/down" buttons, canvas/crop handles need keyboard controls
-        // - useSemanticElements: dropzones can't be buttons, complex page previews need div layouts
+        "useMediaCaption": "off",
+        "noAutofocus": "off",
         "noStaticElementInteractions": "off",
         "useSemanticElements": "off"
       }
