@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { DownloadIcon, PdfIcon, TextIcon } from "@/components/icons";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import {
@@ -10,7 +10,8 @@ import {
 	ProgressBar,
 } from "@/components/pdf/shared";
 import { useInstantMode } from "@/components/shared/InstantModeToggle";
-import { formatFileSize } from "@/lib/utils";
+import { useFileProcessing } from "@/hooks";
+import { formatFileSize, getFileBaseName } from "@/lib/utils";
 
 interface ExtractResult {
 	text: string;
@@ -60,18 +61,13 @@ function downloadText(text: string, filename: string) {
 export default function PdfToTextPage() {
 	const { isInstant, isLoaded } = useInstantMode();
 	const [file, setFile] = useState<File | null>(null);
-	const [isProcessing, setIsProcessing] = useState(false);
-	const [progress, setProgress] = useState(0);
-	const [error, setError] = useState<string | null>(null);
 	const [result, setResult] = useState<ExtractResult | null>(null);
-	const processingRef = useRef(false);
+
+	// Use custom hook for processing state
+	const { isProcessing, progress, error, startProcessing, stopProcessing, setProgress, setError, clearError } = useFileProcessing();
 
 	const processFile = useCallback(async (fileToProcess: File) => {
-		if (processingRef.current) return;
-		processingRef.current = true;
-		setIsProcessing(true);
-		setProgress(0);
-		setError(null);
+		if (!startProcessing()) return;
 		setResult(null);
 
 		try {
@@ -79,7 +75,7 @@ export default function PdfToTextPage() {
 			const { text, pageCount } = await extractTextFromPDF(fileToProcess);
 			setProgress(90);
 
-			const baseName = fileToProcess.name.replace(/\.pdf$/i, "");
+			const baseName = getFileBaseName(fileToProcess.name);
 			const wordCount = text.split(/\s+/).filter(Boolean).length;
 
 			setResult({
@@ -92,17 +88,16 @@ export default function PdfToTextPage() {
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Failed to extract text");
 		} finally {
-			setIsProcessing(false);
-			processingRef.current = false;
+			stopProcessing();
 		}
-	}, []);
+	}, [startProcessing, setProgress, setError, stopProcessing]);
 
 	const handleFileSelected = useCallback(
 		(files: File[]) => {
 			if (files.length > 0) {
 				const selectedFile = files[0];
 				setFile(selectedFile);
-				setError(null);
+				clearError();
 				setResult(null);
 
 				if (isInstant) {
@@ -110,29 +105,29 @@ export default function PdfToTextPage() {
 				}
 			}
 		},
-		[isInstant, processFile],
+		[isInstant, processFile, clearError],
 	);
 
 	const handleClear = useCallback(() => {
 		setFile(null);
-		setError(null);
+		clearError();
 		setResult(null);
-	}, []);
+	}, [clearError]);
 
-	const handleExtract = async () => {
+	const handleExtract = useCallback(async () => {
 		if (!file) return;
 		processFile(file);
-	};
+	}, [file, processFile]);
 
-	const handleDownload = (e: React.MouseEvent) => {
+	const handleDownload = useCallback((e: React.MouseEvent) => {
 		e.preventDefault();
 		e.stopPropagation();
 		if (result) {
 			downloadText(result.text, result.filename);
 		}
-	};
+	}, [result]);
 
-	const handleCopy = async () => {
+	const handleCopy = useCallback(async () => {
 		if (result) {
 			try {
 				await navigator.clipboard.writeText(result.text);
@@ -140,14 +135,13 @@ export default function PdfToTextPage() {
 				setError("Failed to copy to clipboard");
 			}
 		}
-	};
+	}, [result]);
 
-	const handleStartOver = () => {
+	const handleStartOver = useCallback(() => {
 		setFile(null);
 		setResult(null);
-		setError(null);
-		setProgress(0);
-	};
+		clearError();
+	}, [clearError]);
 
 	if (!isLoaded) return null;
 

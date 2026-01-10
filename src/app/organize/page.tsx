@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import {
 	GripIcon,
 	LoaderIcon,
@@ -19,6 +19,7 @@ import {
 	SuccessCard,
 } from "@/components/pdf/shared";
 import { downloadBlob, organizePDF } from "@/lib/pdf-utils";
+import { getFileBaseName } from "@/lib/utils";
 
 interface OrganizeResult {
 	data: Uint8Array;
@@ -82,75 +83,91 @@ export default function OrganizePage() {
 		prevPagesLength.current = 0;
 	}, []);
 
-	// Drag and drop handlers
-	const handleDragStart = (index: number) => {
-		setDraggedIndex(index);
-	};
+	// Ref for stale closure prevention in drag handlers
+	const draggedIndexRef = useRef<number | null>(null);
 
-	const handleDragOver = (e: React.DragEvent, index: number) => {
+	// Drag and drop handlers
+	const handleDragStart = useCallback((index: number) => {
+		draggedIndexRef.current = index;
+		setDraggedIndex(index);
+	}, []);
+
+	const handleDragOver = useCallback((e: React.DragEvent, index: number) => {
 		e.preventDefault();
-		if (draggedIndex !== null && draggedIndex !== index) {
+		if (draggedIndexRef.current !== null && draggedIndexRef.current !== index) {
 			setDragOverIndex(index);
 		}
-	};
+	}, []);
 
-	const handleDragLeave = () => {
+	const handleDragLeave = useCallback(() => {
 		setDragOverIndex(null);
-	};
+	}, []);
 
-	const handleDrop = (e: React.DragEvent, dropIndex: number) => {
+	const handleDrop = useCallback((e: React.DragEvent, dropIndex: number) => {
 		e.preventDefault();
-		if (draggedIndex === null || draggedIndex === dropIndex) {
+		const currentDraggedIndex = draggedIndexRef.current;
+		if (currentDraggedIndex === null || currentDraggedIndex === dropIndex) {
+			draggedIndexRef.current = null;
 			setDraggedIndex(null);
 			setDragOverIndex(null);
 			return;
 		}
 
-		const newItems = [...pageItems];
-		const [draggedItem] = newItems.splice(draggedIndex, 1);
-		newItems.splice(dropIndex, 0, draggedItem);
-		setPageItems(newItems);
+		setPageItems((prev) => {
+			const newItems = [...prev];
+			const [draggedItem] = newItems.splice(currentDraggedIndex, 1);
+			newItems.splice(dropIndex, 0, draggedItem);
+			return newItems;
+		});
+
+		draggedIndexRef.current = null;
 		setDraggedIndex(null);
 		setDragOverIndex(null);
 
 		// Trigger settle animation
 		setSettledIndex(dropIndex);
 		setTimeout(() => setSettledIndex(null), 300);
-	};
+	}, []);
 
-	const handleDragEnd = () => {
+	const handleDragEnd = useCallback(() => {
+		draggedIndexRef.current = null;
 		setDraggedIndex(null);
 		setDragOverIndex(null);
-	};
+	}, []);
 
 	// Selection handlers
-	const togglePageSelection = (id: number) => {
-		const newSelected = new Set(selectedPages);
-		if (newSelected.has(id)) {
-			newSelected.delete(id);
-		} else {
-			newSelected.add(id);
-		}
-		setSelectedPages(newSelected);
-	};
+	const togglePageSelection = useCallback((id: number) => {
+		setSelectedPages((prev) => {
+			const newSelected = new Set(prev);
+			if (newSelected.has(id)) {
+				newSelected.delete(id);
+			} else {
+				newSelected.add(id);
+			}
+			return newSelected;
+		});
+	}, []);
 
-	const handleDeleteSelected = () => {
+	const handleDeleteSelected = useCallback(() => {
 		if (selectedPages.size === 0) return;
-		if (selectedPages.size === pageItems.length) {
-			setError("Cannot delete all pages");
-			return;
-		}
-		setPageItems(pageItems.filter((item) => !selectedPages.has(item.id)));
+		setPageItems((prev) => {
+			if (selectedPages.size === prev.length) {
+				setError("Cannot delete all pages");
+				return prev;
+			}
+			return prev.filter((item) => !selectedPages.has(item.id));
+		});
 		setSelectedPages(new Set());
-	};
+	}, [selectedPages]);
 
-	const handleSelectAll = () => {
-		if (selectedPages.size === pageItems.length) {
-			setSelectedPages(new Set());
-		} else {
-			setSelectedPages(new Set(pageItems.map((p) => p.id)));
-		}
-	};
+	const handleSelectAll = useCallback(() => {
+		setSelectedPages((prev) => {
+			// Check against current pageItems length
+			return prev.size === pageItems.length
+				? new Set<number>()
+				: new Set(pageItems.map((p) => p.id));
+		});
+	}, [pageItems]);
 
 	const handleOrganize = async () => {
 		if (!file || pageItems.length === 0) return;
@@ -164,7 +181,7 @@ export default function OrganizePage() {
 			const pageOrder = pageItems.map((item) => item.id);
 			const data = await organizePDF(file, pageOrder);
 
-			const baseName = file.name.replace(".pdf", "");
+			const baseName = getFileBaseName(file.name);
 			setResult({
 				data,
 				filename: `${baseName}_organized.pdf`,
@@ -193,10 +210,11 @@ export default function OrganizePage() {
 		prevPagesLength.current = 0;
 	};
 
-	const hasChanges = () => {
+	// Memoize hasChanges calculation
+	const hasChanges = useMemo(() => {
 		if (pageItems.length !== pages.length) return true;
 		return pageItems.some((item, index) => item.id !== index + 1);
-	};
+	}, [pageItems, pages.length]);
 
 	return (
 		<div className="page-enter max-w-6xl mx-auto space-y-8">
@@ -346,6 +364,8 @@ export default function OrganizePage() {
 											src={item.dataUrl}
 											alt={`Page ${item.id}`}
 											className="w-full h-auto block pointer-events-none"
+											loading="lazy"
+											decoding="async"
 											draggable={false}
 										/>
 
@@ -399,7 +419,7 @@ export default function OrganizePage() {
 						) : (
 							<>
 								<OrganizeIcon className="w-5 h-5" />
-								{hasChanges()
+								{hasChanges
 									? `Save ${pageItems.length} Pages`
 									: `Save PDF (${pageItems.length} pages)`}
 							</>

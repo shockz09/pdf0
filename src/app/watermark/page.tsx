@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { LoaderIcon, WatermarkIcon } from "@/components/icons";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import {
@@ -14,6 +14,7 @@ import {
 	SuccessCard,
 } from "@/components/pdf/shared";
 import { addWatermark, downloadBlob } from "@/lib/pdf-utils";
+import { getFileBaseName } from "@/lib/utils";
 
 interface WatermarkResult {
 	data: Uint8Array;
@@ -37,6 +38,8 @@ export default function WatermarkPage() {
 	const [isDragging, setIsDragging] = useState(false);
 
 	const previewRef = useRef<HTMLDivElement>(null);
+	const isDraggingRef = useRef(isDragging);
+	isDraggingRef.current = isDragging;
 
 	const { pages, loading, progress } = usePdfPages(file, 0.8);
 
@@ -55,7 +58,7 @@ export default function WatermarkPage() {
 	}, []);
 
 	// Calculate position from mouse/touch event
-	const getPositionFromEvent = (clientX: number, clientY: number) => {
+	const getPositionFromEvent = useCallback((clientX: number, clientY: number) => {
 		if (!previewRef.current) return null;
 		const rect = previewRef.current.getBoundingClientRect();
 		const x = ((clientX - rect.left) / rect.width) * 100;
@@ -64,43 +67,43 @@ export default function WatermarkPage() {
 			x: Math.max(0, Math.min(100, x)),
 			y: Math.max(0, Math.min(100, y)),
 		};
-	};
+	}, []);
 
-	const handleMouseDown = (e: React.MouseEvent) => {
+	const handleMouseDown = useCallback((e: React.MouseEvent) => {
 		e.preventDefault();
 		setIsDragging(true);
 		const pos = getPositionFromEvent(e.clientX, e.clientY);
 		if (pos) setPosition(pos);
-	};
+	}, [getPositionFromEvent]);
 
-	const handleMouseMove = (e: React.MouseEvent) => {
-		if (!isDragging) return;
+	const handleMouseMove = useCallback((e: React.MouseEvent) => {
+		if (!isDraggingRef.current) return;
 		const pos = getPositionFromEvent(e.clientX, e.clientY);
 		if (pos) setPosition(pos);
-	};
+	}, [getPositionFromEvent]);
 
-	const handleMouseUp = () => {
+	const handleMouseUp = useCallback(() => {
 		setIsDragging(false);
-	};
+	}, []);
 
 	// Touch events for mobile
-	const handleTouchStart = (e: React.TouchEvent) => {
+	const handleTouchStart = useCallback((e: React.TouchEvent) => {
 		setIsDragging(true);
 		const touch = e.touches[0];
 		const pos = getPositionFromEvent(touch.clientX, touch.clientY);
 		if (pos) setPosition(pos);
-	};
+	}, [getPositionFromEvent]);
 
-	const handleTouchMove = (e: React.TouchEvent) => {
-		if (!isDragging) return;
+	const handleTouchMove = useCallback((e: React.TouchEvent) => {
+		if (!isDraggingRef.current) return;
 		const touch = e.touches[0];
 		const pos = getPositionFromEvent(touch.clientX, touch.clientY);
 		if (pos) setPosition(pos);
-	};
+	}, [getPositionFromEvent]);
 
-	const handleTouchEnd = () => {
+	const handleTouchEnd = useCallback(() => {
 		setIsDragging(false);
-	};
+	}, []);
 
 	// Handle mouse leave
 	useEffect(() => {
@@ -109,7 +112,7 @@ export default function WatermarkPage() {
 		return () => window.removeEventListener("mouseup", handleGlobalMouseUp);
 	}, []);
 
-	const handleAddWatermark = async () => {
+	const handleAddWatermark = useCallback(async () => {
 		if (!file || !watermarkText.trim()) {
 			setError("Please enter watermark text");
 			return;
@@ -128,7 +131,7 @@ export default function WatermarkPage() {
 				y: position.y,
 			});
 
-			const baseName = file.name.replace(".pdf", "");
+			const baseName = getFileBaseName(file.name);
 			setResult({
 				data,
 				filename: `${baseName}_watermarked.pdf`,
@@ -138,26 +141,64 @@ export default function WatermarkPage() {
 		} finally {
 			setIsProcessing(false);
 		}
-	};
+	}, [file, watermarkText, fontSize, opacity, rotation, position.x, position.y]);
 
-	const handleDownload = (e: React.MouseEvent) => {
+	const handleDownload = useCallback((e: React.MouseEvent) => {
 		e.preventDefault();
 		e.stopPropagation();
 		if (result) {
 			downloadBlob(result.data, result.filename);
 		}
-	};
+	}, [result]);
 
-	const handleStartOver = () => {
+	const handleStartOver = useCallback(() => {
 		setFile(null);
 		setResult(null);
 		setError(null);
 		setWatermarkText("");
 		setPosition({ x: 50, y: 50 });
-	};
+	}, []);
+
+	// Input handlers
+	const handleTextChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+		setWatermarkText(e.target.value);
+	}, []);
+
+	const handleFontSizeChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+		setFontSize(Number(e.target.value));
+	}, []);
+
+	const handleOpacityChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+		setOpacity(Number(e.target.value));
+	}, []);
+
+	const handleRotationChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+		setRotation(Number(e.target.value));
+	}, []);
+
+	// Preset handlers
+	const applyPresetCenterDiagonal = useCallback(() => {
+		setPosition({ x: 50, y: 50 });
+		setRotation(-45);
+	}, []);
+
+	const applyPresetCenterStraight = useCallback(() => {
+		setPosition({ x: 50, y: 50 });
+		setRotation(0);
+	}, []);
+
+	const applyPresetBottomCenter = useCallback(() => {
+		setPosition({ x: 50, y: 10 });
+		setRotation(0);
+	}, []);
+
+	const applyPresetTopRight = useCallback(() => {
+		setPosition({ x: 90, y: 90 });
+		setRotation(0);
+	}, []);
 
 	// Get the first page for preview
-	const previewPage = pages[0];
+	const previewPage = useMemo(() => pages[0], [pages]);
 
 	return (
 		<div className="page-enter max-w-6xl mx-auto space-y-8">
@@ -229,6 +270,8 @@ export default function WatermarkPage() {
 									alt="PDF Preview"
 									className="w-full h-auto block pointer-events-none"
 									draggable={false}
+									loading="lazy"
+									decoding="async"
 								/>
 
 								{/* Watermark Overlay */}
@@ -284,11 +327,12 @@ export default function WatermarkPage() {
 						{/* Watermark Text */}
 						<div className="p-6 bg-card border-2 border-foreground space-y-6">
 							<div className="space-y-2">
-								<span className="input-label">Watermark Text</span>
+								<label htmlFor="watermark-text" className="input-label">Watermark Text</label>
 								<input
+									id="watermark-text"
 									type="text"
 									value={watermarkText}
-									onChange={(e) => setWatermarkText(e.target.value)}
+									onChange={handleTextChange}
 									placeholder="Enter your watermark text"
 									className="input-field"
 								/>
@@ -303,7 +347,7 @@ export default function WatermarkPage() {
 										min={20}
 										max={150}
 										value={fontSize}
-										onChange={(e) => setFontSize(Number(e.target.value))}
+										onChange={handleFontSizeChange}
 										className="w-full accent-primary"
 									/>
 								</div>
@@ -315,7 +359,7 @@ export default function WatermarkPage() {
 										min={5}
 										max={100}
 										value={opacity}
-										onChange={(e) => setOpacity(Number(e.target.value))}
+										onChange={handleOpacityChange}
 										className="w-full accent-primary"
 									/>
 								</div>
@@ -327,7 +371,7 @@ export default function WatermarkPage() {
 										min={-90}
 										max={90}
 										value={rotation}
-										onChange={(e) => setRotation(Number(e.target.value))}
+										onChange={handleRotationChange}
 										className="w-full accent-primary"
 									/>
 								</div>
@@ -339,40 +383,28 @@ export default function WatermarkPage() {
 								<div className="flex flex-wrap gap-2">
 									<button
 										type="button"
-										onClick={() => {
-											setPosition({ x: 50, y: 50 });
-											setRotation(-45);
-										}}
+										onClick={applyPresetCenterDiagonal}
 										className="px-3 py-1.5 text-xs font-bold bg-muted border-2 border-foreground hover:bg-accent transition-colors"
 									>
 										Center Diagonal
 									</button>
 									<button
 										type="button"
-										onClick={() => {
-											setPosition({ x: 50, y: 50 });
-											setRotation(0);
-										}}
+										onClick={applyPresetCenterStraight}
 										className="px-3 py-1.5 text-xs font-bold bg-muted border-2 border-foreground hover:bg-accent transition-colors"
 									>
 										Center Straight
 									</button>
 									<button
 										type="button"
-										onClick={() => {
-											setPosition({ x: 50, y: 10 });
-											setRotation(0);
-										}}
+										onClick={applyPresetBottomCenter}
 										className="px-3 py-1.5 text-xs font-bold bg-muted border-2 border-foreground hover:bg-accent transition-colors"
 									>
 										Bottom Center
 									</button>
 									<button
 										type="button"
-										onClick={() => {
-											setPosition({ x: 90, y: 90 });
-											setRotation(0);
-										}}
+										onClick={applyPresetTopRight}
 										className="px-3 py-1.5 text-xs font-bold bg-muted border-2 border-foreground hover:bg-accent transition-colors"
 									>
 										Top Right

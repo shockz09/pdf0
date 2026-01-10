@@ -1,11 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import {
 	LoaderIcon,
 	SignatureIcon,
-	TrashIcon,
-	UploadIcon,
 } from "@/components/icons";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import {
@@ -19,6 +17,8 @@ import {
 	SuccessCard,
 } from "@/components/pdf/shared";
 import { addSignature, downloadBlob } from "@/lib/pdf-utils";
+import { SignatureDrawPad, SignatureUpload } from "@/components/signature";
+import { getFileBaseName } from "@/lib/utils";
 
 interface SignResult {
 	data: Uint8Array;
@@ -42,11 +42,6 @@ export default function SignPage() {
 	const [position, setPosition] = useState({ x: 70, y: 10 });
 	const [isDragging, setIsDragging] = useState(false);
 
-	// Drawing canvas
-	const canvasRef = useRef<HTMLCanvasElement>(null);
-	const [isDrawing, setIsDrawing] = useState(false);
-	const [hasDrawn, setHasDrawn] = useState(false);
-
 	// Preview
 	const previewRef = useRef<HTMLDivElement>(null);
 	const { pages, loading, progress } = usePdfPages(file, 0.8);
@@ -65,172 +60,16 @@ export default function SignPage() {
 		setResult(null);
 	}, []);
 
-	// Get proper canvas coordinates from mouse/touch event
-	const getCanvasCoords = (
-		canvas: HTMLCanvasElement,
-		e: React.MouseEvent | React.TouchEvent,
-	) => {
-		const rect = canvas.getBoundingClientRect();
-		const clientX = "touches" in e ? e.touches[0].clientX : e.clientX;
-		const clientY = "touches" in e ? e.touches[0].clientY : e.clientY;
+	// Handle signature ready from shared components
+	const handleSignatureReady = useCallback((dataUrl: string) => {
+		setSignatureDataUrl(dataUrl);
+	}, []);
 
-		// Scale from CSS coordinates to canvas internal coordinates
-		const scaleX = canvas.width / rect.width;
-		const scaleY = canvas.height / rect.height;
+	// Position from event - use ref to avoid stale closures in drag handlers
+	const isDraggingRef = useRef(isDragging);
+	isDraggingRef.current = isDragging;
 
-		return {
-			x: (clientX - rect.left) * scaleX,
-			y: (clientY - rect.top) * scaleY,
-		};
-	};
-
-	// Initialize canvas
-	useEffect(() => {
-		const canvas = canvasRef.current;
-		if (!canvas) return;
-
-		const initCanvas = () => {
-			const rect = canvas.getBoundingClientRect();
-			if (rect.width === 0 || rect.height === 0) return;
-
-			// Set canvas internal size (2x for retina)
-			const dpr = window.devicePixelRatio || 1;
-			canvas.width = rect.width * dpr;
-			canvas.height = rect.height * dpr;
-
-			const ctx = canvas.getContext("2d");
-			if (!ctx) return;
-
-			// Clear with white background
-			ctx.fillStyle = "white";
-			ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-			// Set drawing style (scale line width for DPR)
-			ctx.strokeStyle = "#1A1612";
-			ctx.lineWidth = 2 * dpr;
-			ctx.lineCap = "round";
-			ctx.lineJoin = "round";
-		};
-
-		// Initialize after layout
-		requestAnimationFrame(() => {
-			requestAnimationFrame(initCanvas);
-		});
-
-		// Handle resize
-		const resizeObserver = new ResizeObserver(() => {
-			initCanvas();
-			setHasDrawn(false);
-		});
-		resizeObserver.observe(canvas);
-
-		return () => resizeObserver.disconnect();
-	}, [signatureMode]);
-
-	// Drawing functions
-	const startDrawing = (e: React.MouseEvent | React.TouchEvent) => {
-		const canvas = canvasRef.current;
-		if (!canvas) return;
-
-		const ctx = canvas.getContext("2d");
-		if (!ctx) return;
-
-		setIsDrawing(true);
-		setHasDrawn(true);
-
-		const { x, y } = getCanvasCoords(canvas, e);
-		ctx.beginPath();
-		ctx.moveTo(x, y);
-	};
-
-	const draw = (e: React.MouseEvent | React.TouchEvent) => {
-		if (!isDrawing) return;
-
-		const canvas = canvasRef.current;
-		if (!canvas) return;
-
-		const ctx = canvas.getContext("2d");
-		if (!ctx) return;
-
-		const { x, y } = getCanvasCoords(canvas, e);
-		ctx.lineTo(x, y);
-		ctx.stroke();
-	};
-
-	const stopDrawing = () => {
-		setIsDrawing(false);
-	};
-
-	const clearCanvas = () => {
-		const canvas = canvasRef.current;
-		if (!canvas) return;
-
-		const ctx = canvas.getContext("2d");
-		if (!ctx) return;
-
-		const dpr = window.devicePixelRatio || 1;
-
-		// Clear entire canvas
-		ctx.fillStyle = "white";
-		ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-		// Reset drawing style
-		ctx.strokeStyle = "#1A1612";
-		ctx.lineWidth = 2 * dpr;
-		ctx.lineCap = "round";
-		ctx.lineJoin = "round";
-
-		setHasDrawn(false);
-		setSignatureDataUrl(null);
-	};
-
-	const saveSignature = () => {
-		const canvas = canvasRef.current;
-		if (!canvas) return;
-
-		// Convert to PNG with transparency
-		const tempCanvas = document.createElement("canvas");
-		tempCanvas.width = canvas.width;
-		tempCanvas.height = canvas.height;
-		const tempCtx = tempCanvas.getContext("2d");
-		if (!tempCtx) return;
-
-		// Draw the signature
-		tempCtx.drawImage(canvas, 0, 0);
-
-		// Make white pixels transparent
-		const imageData = tempCtx.getImageData(
-			0,
-			0,
-			tempCanvas.width,
-			tempCanvas.height,
-		);
-		const data = imageData.data;
-		for (let i = 0; i < data.length; i += 4) {
-			// If pixel is white-ish, make it transparent
-			if (data[i] > 240 && data[i + 1] > 240 && data[i + 2] > 240) {
-				data[i + 3] = 0;
-			}
-		}
-		tempCtx.putImageData(imageData, 0, 0);
-
-		setSignatureDataUrl(tempCanvas.toDataURL("image/png"));
-	};
-
-	// Handle signature image upload
-	const handleSignatureUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-		const uploadedFile = e.target.files?.[0];
-		if (!uploadedFile) return;
-
-		const reader = new FileReader();
-		reader.onload = (event) => {
-			setSignatureDataUrl(event.target?.result as string);
-		};
-		reader.readAsDataURL(uploadedFile);
-	};
-
-	// Position from event
-	const getPositionFromEvent = (clientX: number, clientY: number) => {
+	const getPositionFromEvent = useCallback((clientX: number, clientY: number) => {
 		if (!previewRef.current) return null;
 		const rect = previewRef.current.getBoundingClientRect();
 		const x = ((clientX - rect.left) / rect.width) * 100;
@@ -239,42 +78,42 @@ export default function SignPage() {
 			x: Math.max(0, Math.min(100, x)),
 			y: Math.max(0, Math.min(100, y)),
 		};
-	};
+	}, []);
 
-	const handleMouseDown = (e: React.MouseEvent) => {
+	const handleMouseDown = useCallback((e: React.MouseEvent) => {
 		e.preventDefault();
 		setIsDragging(true);
 		const pos = getPositionFromEvent(e.clientX, e.clientY);
 		if (pos) setPosition(pos);
-	};
+	}, [getPositionFromEvent]);
 
-	const handleMouseMove = (e: React.MouseEvent) => {
-		if (!isDragging) return;
+	const handleMouseMove = useCallback((e: React.MouseEvent) => {
+		if (!isDraggingRef.current) return;
 		const pos = getPositionFromEvent(e.clientX, e.clientY);
 		if (pos) setPosition(pos);
-	};
+	}, [getPositionFromEvent]);
 
-	const handleMouseUp = () => {
+	const handleMouseUp = useCallback(() => {
 		setIsDragging(false);
-	};
+	}, []);
 
-	const handleTouchStart = (e: React.TouchEvent) => {
+	const handleTouchStart = useCallback((e: React.TouchEvent) => {
 		setIsDragging(true);
 		const touch = e.touches[0];
 		const pos = getPositionFromEvent(touch.clientX, touch.clientY);
 		if (pos) setPosition(pos);
-	};
+	}, [getPositionFromEvent]);
 
-	const handleTouchMove = (e: React.TouchEvent) => {
-		if (!isDragging) return;
+	const handleTouchMove = useCallback((e: React.TouchEvent) => {
+		if (!isDraggingRef.current) return;
 		const touch = e.touches[0];
 		const pos = getPositionFromEvent(touch.clientX, touch.clientY);
 		if (pos) setPosition(pos);
-	};
+	}, [getPositionFromEvent]);
 
-	const handleTouchEnd = () => {
+	const handleTouchEnd = useCallback(() => {
 		setIsDragging(false);
-	};
+	}, []);
 
 	useEffect(() => {
 		const handleGlobalMouseUp = () => setIsDragging(false);
@@ -282,7 +121,7 @@ export default function SignPage() {
 		return () => window.removeEventListener("mouseup", handleGlobalMouseUp);
 	}, []);
 
-	const handleSign = async () => {
+	const handleSign = useCallback(async () => {
 		if (!file || !signatureDataUrl) return;
 
 		setIsProcessing(true);
@@ -296,7 +135,7 @@ export default function SignPage() {
 				width: signatureWidth,
 			});
 
-			const baseName = file.name.replace(".pdf", "");
+			const baseName = getFileBaseName(file.name);
 			setResult({
 				data,
 				filename: `${baseName}_signed.pdf`,
@@ -306,26 +145,39 @@ export default function SignPage() {
 		} finally {
 			setIsProcessing(false);
 		}
-	};
+	}, [file, signatureDataUrl, position.x, position.y, signatureWidth]);
 
-	const handleDownload = (e: React.MouseEvent) => {
+	const handleDownload = useCallback((e: React.MouseEvent) => {
 		e.preventDefault();
 		e.stopPropagation();
 		if (result) {
 			downloadBlob(result.data, result.filename);
 		}
-	};
+	}, [result]);
 
-	const handleStartOver = () => {
+	const handleStartOver = useCallback(() => {
 		setFile(null);
 		setResult(null);
 		setError(null);
 		setSignatureDataUrl(null);
-		setHasDrawn(false);
 		setPosition({ x: 70, y: 10 });
-	};
+	}, []);
 
-	const previewPage = pages[0];
+	// Mode toggle callbacks
+	const setModeDraw = useCallback(() => setSignatureMode("draw"), []);
+	const setModeUpload = useCallback(() => setSignatureMode("upload"), []);
+
+	// Quick position callbacks
+	const setPositionBottomRight = useCallback(() => setPosition({ x: 70, y: 10 }), []);
+	const setPositionBottomLeft = useCallback(() => setPosition({ x: 30, y: 10 }), []);
+	const setPositionCenter = useCallback(() => setPosition({ x: 50, y: 50 }), []);
+
+	// Signature width handler
+	const handleWidthChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+		setSignatureWidth(Number(e.target.value));
+	}, []);
+
+	const previewPage = useMemo(() => pages[0], [pages]);
 
 	return (
 		<div className="page-enter max-w-6xl mx-auto space-y-8">
@@ -403,6 +255,8 @@ export default function SignPage() {
 									alt="PDF Preview"
 									className="w-full h-auto block pointer-events-none"
 									draggable={false}
+									loading="lazy"
+									decoding="async"
 								/>
 
 								{/* Signature Overlay */}
@@ -421,6 +275,8 @@ export default function SignPage() {
 											alt="Signature"
 											className="w-full h-auto"
 											draggable={false}
+											loading="lazy"
+											decoding="async"
 										/>
 									</div>
 								)}
@@ -463,7 +319,7 @@ export default function SignPage() {
 						<div className="flex border-2 border-foreground">
 							<button
 								type="button"
-								onClick={() => setSignatureMode("draw")}
+								onClick={setModeDraw}
 								className={`flex-1 py-3 px-4 font-bold transition-colors ${
 									signatureMode === "draw"
 										? "bg-primary text-white"
@@ -474,7 +330,7 @@ export default function SignPage() {
 							</button>
 							<button
 								type="button"
-								onClick={() => setSignatureMode("upload")}
+								onClick={setModeUpload}
 								className={`flex-1 py-3 px-4 font-bold border-l-2 border-foreground transition-colors ${
 									signatureMode === "upload"
 										? "bg-primary text-white"
@@ -486,90 +342,14 @@ export default function SignPage() {
 						</div>
 
 						{/* Signature Area */}
-						<div className="p-6 bg-card border-2 border-foreground space-y-4">
+						<div className="p-6 bg-card border-2 border-foreground">
 							{signatureMode === "draw" ? (
-								<>
-									<div className="flex items-center justify-between">
-										<span className="input-label">Draw your signature</span>
-										<button
-											type="button"
-											onClick={clearCanvas}
-											className="text-sm font-semibold text-muted-foreground hover:text-destructive transition-colors flex items-center gap-1"
-										>
-											<TrashIcon className="w-4 h-4" />
-											Clear
-										</button>
-									</div>
-
-									{/* Drawing Canvas */}
-									<div className="border-2 border-dashed border-foreground/30 bg-white">
-										<canvas
-											ref={canvasRef}
-											className="w-full h-40 cursor-crosshair touch-none"
-											onMouseDown={startDrawing}
-											onMouseMove={draw}
-											onMouseUp={stopDrawing}
-											onMouseLeave={stopDrawing}
-											onTouchStart={startDrawing}
-											onTouchMove={draw}
-											onTouchEnd={stopDrawing}
-										/>
-									</div>
-
-									<button
-										type="button"
-										onClick={saveSignature}
-										disabled={!hasDrawn}
-										className="btn-secondary w-full"
-									>
-										{signatureDataUrl
-											? "Update Signature"
-											: "Use This Signature"}
-									</button>
-								</>
+								<SignatureDrawPad
+									onSignatureReady={handleSignatureReady}
+									height={160}
+								/>
 							) : (
-								<>
-									<span className="input-label">Upload signature image</span>
-									<p className="text-sm text-muted-foreground">
-										PNG with transparent background works best
-									</p>
-
-									{signatureDataUrl ? (
-										<div className="space-y-4">
-											<div className="p-4 border-2 border-foreground bg-white flex items-center justify-center">
-												<img
-													src={signatureDataUrl}
-													alt="Uploaded signature"
-													className="max-h-32 max-w-full"
-												/>
-											</div>
-											<button
-												type="button"
-												onClick={() => setSignatureDataUrl(null)}
-												className="btn-secondary w-full"
-											>
-												<TrashIcon className="w-4 h-4" />
-												Remove & Upload New
-											</button>
-										</div>
-									) : (
-										<span className="block cursor-pointer">
-											<div className="border-2 border-dashed border-foreground/30 p-8 text-center hover:border-primary hover:bg-accent/50 transition-colors">
-												<UploadIcon className="w-8 h-8 mx-auto mb-2 text-muted-foreground" />
-												<p className="font-medium">Click to upload</p>
-												<p className="text-sm text-muted-foreground">
-													PNG, JPG, or GIF
-												</p>
-											</div>
-											<input
-												type="file"
-												accept="image/*"
-												onChange={handleSignatureUpload}
-												className="hidden"
-											/>
-										</span>
-									)}
-								</>
+								<SignatureUpload onSignatureReady={handleSignatureReady} />
 							)}
 						</div>
 
@@ -585,7 +365,7 @@ export default function SignPage() {
 									max={500}
 									step={10}
 									value={signatureWidth}
-									onChange={(e) => setSignatureWidth(Number(e.target.value))}
+									onChange={handleWidthChange}
 									className="w-full accent-primary"
 								/>
 
@@ -595,21 +375,21 @@ export default function SignPage() {
 									<div className="flex flex-wrap gap-2">
 										<button
 											type="button"
-											onClick={() => setPosition({ x: 70, y: 10 })}
+											onClick={setPositionBottomRight}
 											className="px-3 py-1.5 text-xs font-bold bg-muted border-2 border-foreground hover:bg-accent transition-colors"
 										>
 											Bottom Right
 										</button>
 										<button
 											type="button"
-											onClick={() => setPosition({ x: 30, y: 10 })}
+											onClick={setPositionBottomLeft}
 											className="px-3 py-1.5 text-xs font-bold bg-muted border-2 border-foreground hover:bg-accent transition-colors"
 										>
 											Bottom Left
 										</button>
 										<button
 											type="button"
-											onClick={() => setPosition({ x: 50, y: 50 })}
+											onClick={setPositionCenter}
 											className="px-3 py-1.5 text-xs font-bold bg-muted border-2 border-foreground hover:bg-accent transition-colors"
 										>
 											Center

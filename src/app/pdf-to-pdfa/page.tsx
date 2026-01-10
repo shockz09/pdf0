@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, memo } from "react";
 import { PdfIcon } from "@/components/icons";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import {
@@ -11,18 +11,20 @@ import {
 	SuccessCard,
 } from "@/components/pdf/shared";
 import { useInstantMode } from "@/components/shared/InstantModeToggle";
+import { useFileProcessing } from "@/hooks";
 import {
 	PDFA_DESCRIPTIONS,
 	useGhostscript,
 	type PdfALevel,
 } from "@/lib/ghostscript/useGhostscript";
 import { downloadBlob } from "@/lib/pdf-utils";
-import { formatFileSize } from "@/lib/utils";
+import { formatFileSize, getFileBaseName } from "@/lib/utils";
 
 // Archive icon
-function ArchiveIcon({ className }: { className?: string }) {
+const ArchiveIcon = memo(function ArchiveIcon({ className }: { className?: string }) {
 	return (
 		<svg
+			aria-hidden="true"
 			className={className}
 			viewBox="0 0 24 24"
 			fill="none"
@@ -36,7 +38,7 @@ function ArchiveIcon({ className }: { className?: string }) {
 			<path d="M10 12h4" />
 		</svg>
 	);
-}
+});
 
 interface ConvertResult {
 	data: Uint8Array;
@@ -51,24 +53,21 @@ export default function PdfToPdfAPage() {
 	const { toPdfA, progress: gsProgress } = useGhostscript();
 	const [file, setFile] = useState<File | null>(null);
 	const [pdfaLevel, setPdfaLevel] = useState<PdfALevel>("1b");
-	const [isProcessing, setIsProcessing] = useState(false);
-	const [error, setError] = useState<string | null>(null);
 	const [result, setResult] = useState<ConvertResult | null>(null);
-	const processingRef = useRef(false);
 	const instantTriggeredRef = useRef(false);
+
+	// Use custom hook for processing state
+	const { isProcessing, error, startProcessing, stopProcessing, setError, clearError } = useFileProcessing();
 
 	const processFile = useCallback(
 		async (fileToProcess: File, level: PdfALevel = "1b") => {
-			if (processingRef.current) return;
-			processingRef.current = true;
-			setIsProcessing(true);
-			setError(null);
+			if (!startProcessing()) return;
 			setResult(null);
 
 			try {
 				const converted = await toPdfA(fileToProcess, level);
 
-				const baseName = fileToProcess.name.replace(".pdf", "");
+				const baseName = getFileBaseName(fileToProcess.name);
 				setResult({
 					data: converted,
 					filename: `${baseName}_pdfa-${level}.pdf`,
@@ -79,23 +78,22 @@ export default function PdfToPdfAPage() {
 			} catch (err) {
 				setError(err instanceof Error ? err.message : "Failed to convert PDF");
 			} finally {
-				setIsProcessing(false);
-				processingRef.current = false;
+				stopProcessing();
 			}
 		},
-		[toPdfA],
+		[toPdfA, startProcessing, setError, stopProcessing],
 	);
 
 	const handleFileSelected = useCallback(
 		(files: File[]) => {
 			if (files.length > 0) {
 				setFile(files[0]);
-				setError(null);
+				clearError();
 				setResult(null);
 				instantTriggeredRef.current = false;
 			}
 		},
-		[],
+		[clearError],
 	);
 
 	// Instant mode auto-process
@@ -108,29 +106,34 @@ export default function PdfToPdfAPage() {
 
 	const handleClear = useCallback(() => {
 		setFile(null);
-		setError(null);
+		clearError();
 		setResult(null);
-	}, []);
+	}, [clearError]);
 
-	const handleConvert = async () => {
+	const handleConvert = useCallback(async () => {
 		if (!file) return;
 		processFile(file, pdfaLevel);
-	};
+	}, [file, pdfaLevel, processFile]);
 
-	const handleDownload = (e: React.MouseEvent) => {
+	const handleDownload = useCallback((e: React.MouseEvent) => {
 		e.preventDefault();
 		e.stopPropagation();
 		if (result) {
 			downloadBlob(result.data, result.filename);
 		}
-	};
+	}, [result]);
 
-	const handleStartOver = () => {
+	const handleStartOver = useCallback(() => {
 		setFile(null);
 		setResult(null);
-		setError(null);
+		clearError();
 		instantTriggeredRef.current = false;
-	};
+	}, [clearError]);
+
+	// Level selection handler
+	const handleLevelSelect = useCallback((level: PdfALevel) => {
+		setPdfaLevel(level);
+	}, []);
 
 	if (!isLoaded) return null;
 
@@ -166,16 +169,16 @@ export default function PdfToPdfAPage() {
 					/>
 
 					{/* PDF/A Level Selector */}
-					<div className="space-y-3">
-						<label className="text-sm font-medium text-foreground">
+					<fieldset className="space-y-3">
+						<legend className="text-sm font-medium text-foreground">
 							PDF/A Conformance Level
-						</label>
-						<div className="grid grid-cols-3 gap-3">
+						</legend>
+						<div className="grid grid-cols-3 gap-3" role="group">
 							{(["1b", "2b", "3b"] as PdfALevel[]).map((level) => (
 								<button
 									key={level}
 									type="button"
-									onClick={() => setPdfaLevel(level)}
+									onClick={() => handleLevelSelect(level)}
 									className={`p-3 rounded-lg border-2 transition-all text-left ${
 										pdfaLevel === level
 											? "border-primary bg-primary/5"
@@ -194,7 +197,7 @@ export default function PdfToPdfAPage() {
 						<p className="text-xs text-muted-foreground">
 							{PDFA_DESCRIPTIONS[pdfaLevel]}
 						</p>
-					</div>
+					</fieldset>
 
 					<div className="info-box">
 						<svg
@@ -232,16 +235,16 @@ export default function PdfToPdfAPage() {
 
 					{/* PDF/A Level Selector (when file selected) */}
 					{!isProcessing && (
-						<div className="space-y-3">
-							<label className="text-sm font-medium text-foreground">
+						<fieldset className="space-y-3">
+							<legend className="text-sm font-medium text-foreground">
 								PDF/A Conformance Level
-							</label>
-							<div className="grid grid-cols-3 gap-3">
+							</legend>
+							<div className="grid grid-cols-3 gap-3" role="group">
 								{(["1b", "2b", "3b"] as PdfALevel[]).map((level) => (
 									<button
 										key={level}
 										type="button"
-										onClick={() => setPdfaLevel(level)}
+										onClick={() => handleLevelSelect(level)}
 										className={`p-3 rounded-lg border-2 transition-all text-left ${
 											pdfaLevel === level
 												? "border-primary bg-primary/5"
@@ -257,7 +260,7 @@ export default function PdfToPdfAPage() {
 									</button>
 								))}
 							</div>
-						</div>
+						</fieldset>
 					)}
 
 					{error && <ErrorBox message={error} />}

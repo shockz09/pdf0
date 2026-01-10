@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useState, useMemo } from "react";
 import { LoaderIcon, PdfIcon, SplitIcon } from "@/components/icons";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import {
@@ -17,6 +17,7 @@ import {
 	getPDFPageCount,
 	splitPDF,
 } from "@/lib/pdf-utils";
+import { getFileBaseName } from "@/lib/utils";
 
 type SplitMode = "extract" | "range" | "each";
 
@@ -98,7 +99,7 @@ export default function SplitPage() {
 		return ranges;
 	};
 
-	const handleSplit = async () => {
+	const handleSplit = useCallback(async () => {
 		if (!file) return;
 
 		setIsProcessing(true);
@@ -107,7 +108,7 @@ export default function SplitPage() {
 		setResult(null);
 
 		try {
-			const baseName = file.name.replace(".pdf", "");
+			const baseName = getFileBaseName(file.name);
 			let resultFiles: { data: Uint8Array; filename: string }[] = [];
 
 			if (mode === "extract") {
@@ -154,9 +155,9 @@ export default function SplitPage() {
 		} finally {
 			setIsProcessing(false);
 		}
-	};
+	}, [file, mode, extractInput, rangeInput, pageCount]);
 
-	const handleDownload = (e: React.MouseEvent) => {
+	const handleDownload = useCallback((e: React.MouseEvent) => {
 		e.preventDefault();
 		e.stopPropagation();
 		if (result) {
@@ -166,9 +167,9 @@ export default function SplitPage() {
 				downloadMultiple(result.files);
 			}
 		}
-	};
+	}, [result]);
 
-	const handleStartOver = () => {
+	const handleStartOver = useCallback(() => {
 		setFile(null);
 		setPageCount(0);
 		setResult(null);
@@ -176,13 +177,27 @@ export default function SplitPage() {
 		setProgress(0);
 		setExtractInput("");
 		setRangeInput("");
-	};
+	}, []);
 
-	const modes = [
-		{ value: "extract" as const, label: "Extract Pages" },
-		{ value: "range" as const, label: "Split by Range" },
-		{ value: "each" as const, label: "Every Page" },
-	];
+	// Input handlers
+	const handleExtractInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+		setExtractInput(e.target.value);
+	}, []);
+
+	const handleRangeInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+		setRangeInput(e.target.value);
+	}, []);
+
+	// Mode handlers
+	const setModeExtract = useCallback(() => setMode("extract"), []);
+	const setModeRange = useCallback(() => setMode("range"), []);
+	const setModeEach = useCallback(() => setMode("each"), []);
+
+	const modes = useMemo(() => [
+		{ value: "extract" as const, label: "Extract Pages", handler: setModeExtract },
+		{ value: "range" as const, label: "Split by Range", handler: setModeRange },
+		{ value: "each" as const, label: "Every Page", handler: setModeEach },
+	], [setModeExtract, setModeRange, setModeEach]);
 
 	return (
 		<div className="page-enter max-w-2xl mx-auto space-y-8">
@@ -234,7 +249,7 @@ export default function SplitPage() {
 							<button
 								type="button"
 								key={m.value}
-								onClick={() => setMode(m.value)}
+								onClick={m.handler}
 								className={`mode-option ${mode === m.value ? "active" : ""}`}
 							>
 								{m.label}
@@ -250,7 +265,7 @@ export default function SplitPage() {
 								type="text"
 								placeholder="e.g., 1, 3, 5-10"
 								value={extractInput}
-								onChange={(e) => setExtractInput(e.target.value)}
+								onChange={handleExtractInputChange}
 								className="input-field"
 							/>
 							<p className="text-xs text-muted-foreground">
@@ -266,7 +281,7 @@ export default function SplitPage() {
 								type="text"
 								placeholder="e.g., 1-3, 4-6, 7-10"
 								value={rangeInput}
-								onChange={(e) => setRangeInput(e.target.value)}
+								onChange={handleRangeInputChange}
 								className="input-field"
 							/>
 							<p className="text-xs text-muted-foreground">

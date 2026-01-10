@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { LoaderIcon, NumbersIcon } from "@/components/icons";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import {
@@ -14,6 +14,7 @@ import {
 	SuccessCard,
 } from "@/components/pdf/shared";
 import { addPageNumbers, downloadBlob } from "@/lib/pdf-utils";
+import { getFileBaseName } from "@/lib/utils";
 
 interface PageNumbersResult {
 	data: Uint8Array;
@@ -36,6 +37,8 @@ export default function PageNumbersPage() {
 	const [isDragging, setIsDragging] = useState(false);
 
 	const previewRef = useRef<HTMLDivElement>(null);
+	const isDraggingRef = useRef(isDragging);
+	isDraggingRef.current = isDragging;
 
 	const { pages, loading, progress } = usePdfPages(file, 0.8);
 
@@ -54,7 +57,7 @@ export default function PageNumbersPage() {
 	}, []);
 
 	// Calculate position from mouse/touch event
-	const getPositionFromEvent = (clientX: number, clientY: number) => {
+	const getPositionFromEvent = useCallback((clientX: number, clientY: number) => {
 		if (!previewRef.current) return null;
 		const rect = previewRef.current.getBoundingClientRect();
 		const x = ((clientX - rect.left) / rect.width) * 100;
@@ -63,43 +66,43 @@ export default function PageNumbersPage() {
 			x: Math.max(0, Math.min(100, x)),
 			y: Math.max(0, Math.min(100, y)),
 		};
-	};
+	}, []);
 
-	const handleMouseDown = (e: React.MouseEvent) => {
+	const handleMouseDown = useCallback((e: React.MouseEvent) => {
 		e.preventDefault();
 		setIsDragging(true);
 		const pos = getPositionFromEvent(e.clientX, e.clientY);
 		if (pos) setPosition(pos);
-	};
+	}, [getPositionFromEvent]);
 
-	const handleMouseMove = (e: React.MouseEvent) => {
-		if (!isDragging) return;
+	const handleMouseMove = useCallback((e: React.MouseEvent) => {
+		if (!isDraggingRef.current) return;
 		const pos = getPositionFromEvent(e.clientX, e.clientY);
 		if (pos) setPosition(pos);
-	};
+	}, [getPositionFromEvent]);
 
-	const handleMouseUp = () => {
+	const handleMouseUp = useCallback(() => {
 		setIsDragging(false);
-	};
+	}, []);
 
 	// Touch events
-	const handleTouchStart = (e: React.TouchEvent) => {
+	const handleTouchStart = useCallback((e: React.TouchEvent) => {
 		setIsDragging(true);
 		const touch = e.touches[0];
 		const pos = getPositionFromEvent(touch.clientX, touch.clientY);
 		if (pos) setPosition(pos);
-	};
+	}, [getPositionFromEvent]);
 
-	const handleTouchMove = (e: React.TouchEvent) => {
-		if (!isDragging) return;
+	const handleTouchMove = useCallback((e: React.TouchEvent) => {
+		if (!isDraggingRef.current) return;
 		const touch = e.touches[0];
 		const pos = getPositionFromEvent(touch.clientX, touch.clientY);
 		if (pos) setPosition(pos);
-	};
+	}, [getPositionFromEvent]);
 
-	const handleTouchEnd = () => {
+	const handleTouchEnd = useCallback(() => {
 		setIsDragging(false);
-	};
+	}, []);
 
 	useEffect(() => {
 		const handleGlobalMouseUp = () => setIsDragging(false);
@@ -107,7 +110,7 @@ export default function PageNumbersPage() {
 		return () => window.removeEventListener("mouseup", handleGlobalMouseUp);
 	}, []);
 
-	const handleAddPageNumbers = async () => {
+	const handleAddPageNumbers = useCallback(async () => {
 		if (!file) return;
 
 		setIsProcessing(true);
@@ -123,7 +126,7 @@ export default function PageNumbersPage() {
 				y: position.y,
 			});
 
-			const baseName = file.name.replace(".pdf", "");
+			const baseName = getFileBaseName(file.name);
 			setResult({
 				data,
 				filename: `${baseName}_numbered.pdf`,
@@ -135,38 +138,73 @@ export default function PageNumbersPage() {
 		} finally {
 			setIsProcessing(false);
 		}
-	};
+	}, [file, fontSize, startFrom, format, position.x, position.y]);
 
-	const handleDownload = (e: React.MouseEvent) => {
+	const handleDownload = useCallback((e: React.MouseEvent) => {
 		e.preventDefault();
 		e.stopPropagation();
 		if (result) {
 			downloadBlob(result.data, result.filename);
 		}
-	};
+	}, [result]);
 
-	const handleStartOver = () => {
+	const handleStartOver = useCallback(() => {
 		setFile(null);
 		setResult(null);
 		setError(null);
 		setPosition({ x: 50, y: 5 });
-	};
+	}, []);
+
+	// Input handlers
+	const handleFormatChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+		setFormat(e.target.value);
+	}, []);
+
+	const handleFontSizeChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+		setFontSize(Number(e.target.value));
+	}, []);
+
+	const handleStartFromChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+		setStartFrom(Number(e.target.value));
+	}, []);
+
+	// Format preset handler
+	const handleFormatSelect = useCallback((value: string) => {
+		setFormat(value);
+	}, []);
+
+	// Position preset handlers
+	const setPositionBottomCenter = useCallback(() => setPosition({ x: 50, y: 5 }), []);
+	const setPositionTopCenter = useCallback(() => setPosition({ x: 50, y: 95 }), []);
+	const setPositionBottomRight = useCallback(() => setPosition({ x: 90, y: 5 }), []);
+	const setPositionBottomLeft = useCallback(() => setPosition({ x: 10, y: 5 }), []);
 
 	// Format the page number for preview
-	const formatPageNumber = (pageNum: number, total: number) => {
+	const formatPageNumber = useCallback((pageNum: number, total: number) => {
 		return format
 			.replace("{n}", String(pageNum + startFrom - 1))
 			.replace("{total}", String(total));
-	};
+	}, [format, startFrom]);
 
-	const presetFormats = [
+	// Memoized values
+	const presetFormats = useMemo(() => [
 		{ value: "{n}", label: "1, 2, 3" },
 		{ value: "Page {n}", label: "Page 1" },
 		{ value: "{n} / {total}", label: "1 / 10" },
 		{ value: "- {n} -", label: "- 1 -" },
-	];
+	], []);
 
-	const previewPage = pages[0];
+	const previewPage = useMemo(() => pages[0], [pages]);
+
+	const positionStyle = useMemo(() => ({
+		left: `${position.x}%`,
+		bottom: `${position.y}%`,
+		transform: "translate(-50%, 50%)",
+	}), [position.x, position.y]);
+
+	const fontSizeStyle = useMemo(() => ({
+		fontSize: `${Math.max(8, fontSize * 0.8)}px`
+	}), [fontSize]);
 
 	return (
 		<div className="page-enter max-w-6xl mx-auto space-y-8">
@@ -238,20 +276,18 @@ export default function PageNumbersPage() {
 									alt="PDF Preview"
 									className="w-full h-auto block pointer-events-none"
 									draggable={false}
+									loading="lazy"
+									decoding="async"
 								/>
 
 								{/* Page Number Overlay */}
 								<div
 									className="absolute pointer-events-none transition-all duration-75"
-									style={{
-										left: `${position.x}%`,
-										bottom: `${position.y}%`,
-										transform: "translate(-50%, 50%)",
-									}}
+									style={positionStyle}
 								>
 									<span
 										className="px-2 py-0.5 bg-white/90 border border-foreground/20 font-mono"
-										style={{ fontSize: `${Math.max(8, fontSize * 0.8)}px` }}
+										style={fontSizeStyle}
 									>
 										{formatPageNumber(1, pages.length)}
 									</span>
@@ -260,11 +296,7 @@ export default function PageNumbersPage() {
 								{/* Position Indicator */}
 								<div
 									className="absolute w-4 h-4 border-2 border-primary bg-primary/20 rounded-full pointer-events-none transition-all duration-75"
-									style={{
-										left: `${position.x}%`,
-										bottom: `${position.y}%`,
-										transform: "translate(-50%, 50%)",
-									}}
+									style={positionStyle}
 								/>
 							</div>
 						) : null}
@@ -287,7 +319,7 @@ export default function PageNumbersPage() {
 										<button
 											type="button"
 											key={fmt.value}
-											onClick={() => setFormat(fmt.value)}
+											onClick={() => handleFormatSelect(fmt.value)}
 											className={`px-4 py-2 border-2 font-bold text-sm transition-all
                         ${
 													format === fmt.value
@@ -303,7 +335,7 @@ export default function PageNumbersPage() {
 								<input
 									type="text"
 									value={format}
-									onChange={(e) => setFormat(e.target.value)}
+									onChange={handleFormatChange}
 									placeholder="Custom: {n} = page, {total} = total"
 									className="input-field"
 								/>
@@ -318,7 +350,7 @@ export default function PageNumbersPage() {
 										min={8}
 										max={36}
 										value={fontSize}
-										onChange={(e) => setFontSize(Number(e.target.value))}
+										onChange={handleFontSizeChange}
 										className="w-full accent-primary"
 									/>
 								</div>
@@ -329,7 +361,7 @@ export default function PageNumbersPage() {
 										type="number"
 										min={0}
 										value={startFrom}
-										onChange={(e) => setStartFrom(Number(e.target.value))}
+										onChange={handleStartFromChange}
 										className="input-field text-center"
 									/>
 								</div>
@@ -341,28 +373,28 @@ export default function PageNumbersPage() {
 								<div className="flex flex-wrap gap-2">
 									<button
 										type="button"
-										onClick={() => setPosition({ x: 50, y: 5 })}
+										onClick={setPositionBottomCenter}
 										className="px-3 py-1.5 text-xs font-bold bg-muted border-2 border-foreground hover:bg-accent transition-colors"
 									>
 										Bottom Center
 									</button>
 									<button
 										type="button"
-										onClick={() => setPosition({ x: 50, y: 95 })}
+										onClick={setPositionTopCenter}
 										className="px-3 py-1.5 text-xs font-bold bg-muted border-2 border-foreground hover:bg-accent transition-colors"
 									>
 										Top Center
 									</button>
 									<button
 										type="button"
-										onClick={() => setPosition({ x: 90, y: 5 })}
+										onClick={setPositionBottomRight}
 										className="px-3 py-1.5 text-xs font-bold bg-muted border-2 border-foreground hover:bg-accent transition-colors"
 									>
 										Bottom Right
 									</button>
 									<button
 										type="button"
-										onClick={() => setPosition({ x: 10, y: 5 })}
+										onClick={setPositionBottomLeft}
 										className="px-3 py-1.5 text-xs font-bold bg-muted border-2 border-foreground hover:bg-accent transition-colors"
 									>
 										Bottom Left

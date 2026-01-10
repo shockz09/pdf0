@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { PdfIcon, ReversePagesIcon } from "@/components/icons";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import {
@@ -11,8 +11,9 @@ import {
 	SuccessCard,
 } from "@/components/pdf/shared";
 import { useInstantMode } from "@/components/shared/InstantModeToggle";
+import { useFileProcessing } from "@/hooks";
 import { downloadBlob, getPDFPageCount, reversePDF } from "@/lib/pdf-utils";
-import { formatFileSize } from "@/lib/utils";
+import { formatFileSize, getFileBaseName } from "@/lib/utils";
 
 interface ReverseResult {
 	data: Uint8Array;
@@ -23,19 +24,14 @@ interface ReverseResult {
 export default function ReversePage() {
 	const { isInstant, isLoaded } = useInstantMode();
 	const [file, setFile] = useState<File | null>(null);
-	const [isProcessing, setIsProcessing] = useState(false);
-	const [progress, setProgress] = useState(0);
-	const [error, setError] = useState<string | null>(null);
 	const [result, setResult] = useState<ReverseResult | null>(null);
 	const [pageCount, setPageCount] = useState<number>(0);
-	const processingRef = useRef(false);
+
+	// Use custom hook for processing state
+	const { isProcessing, progress, error, startProcessing, stopProcessing, setProgress, setError, clearError } = useFileProcessing();
 
 	const processFile = useCallback(async (fileToProcess: File) => {
-		if (processingRef.current) return;
-		processingRef.current = true;
-		setIsProcessing(true);
-		setProgress(0);
-		setError(null);
+		if (!startProcessing()) return;
 		setResult(null);
 
 		try {
@@ -44,7 +40,7 @@ export default function ReversePage() {
 			const count = await getPDFPageCount(fileToProcess);
 			setProgress(90);
 
-			const baseName = fileToProcess.name.replace(/\.pdf$/i, "");
+			const baseName = getFileBaseName(fileToProcess.name);
 			setResult({
 				data,
 				filename: `${baseName}_reversed.pdf`,
@@ -54,17 +50,16 @@ export default function ReversePage() {
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Failed to reverse PDF");
 		} finally {
-			setIsProcessing(false);
-			processingRef.current = false;
+			stopProcessing();
 		}
-	}, []);
+	}, [startProcessing, setProgress, setError, stopProcessing]);
 
 	const handleFileSelected = useCallback(
 		async (files: File[]) => {
 			if (files.length > 0) {
 				const selectedFile = files[0];
 				setFile(selectedFile);
-				setError(null);
+				clearError();
 				setResult(null);
 
 				try {
@@ -79,36 +74,35 @@ export default function ReversePage() {
 				}
 			}
 		},
-		[isInstant, processFile],
+		[isInstant, processFile, clearError],
 	);
 
 	const handleClear = useCallback(() => {
 		setFile(null);
-		setError(null);
+		clearError();
 		setResult(null);
 		setPageCount(0);
-	}, []);
+	}, [clearError]);
 
-	const handleReverse = async () => {
+	const handleReverse = useCallback(async () => {
 		if (!file) return;
 		processFile(file);
-	};
+	}, [file, processFile]);
 
-	const handleDownload = (e: React.MouseEvent) => {
+	const handleDownload = useCallback((e: React.MouseEvent) => {
 		e.preventDefault();
 		e.stopPropagation();
 		if (result) {
 			downloadBlob(result.data, result.filename);
 		}
-	};
+	}, [result]);
 
-	const handleStartOver = () => {
+	const handleStartOver = useCallback(() => {
 		setFile(null);
 		setResult(null);
-		setError(null);
-		setProgress(0);
+		clearError();
 		setPageCount(0);
-	};
+	}, [clearError]);
 
 	if (!isLoaded) return null;
 

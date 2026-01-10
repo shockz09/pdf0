@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	DownloadIcon,
 	ImageIcon,
@@ -11,13 +11,14 @@ import { FileDropzone } from "@/components/pdf/file-dropzone";
 import { usePdfPages } from "@/components/pdf/pdf-page-preview";
 import { ErrorBox, PdfFileInfo, PdfPageHeader } from "@/components/pdf/shared";
 import { useInstantMode } from "@/components/shared/InstantModeToggle";
+import { useFileProcessing } from "@/hooks";
 import {
 	type ConvertedImage,
 	downloadImage,
 	downloadImagesAsZip,
 	pdfToImages,
 } from "@/lib/pdf-image-utils";
-import { formatFileSize } from "@/lib/utils";
+import { formatFileSize, getFileBaseName } from "@/lib/utils";
 
 function RotateIcon({ className }: { className?: string }) {
 	return (
@@ -87,16 +88,15 @@ const QUALITY_SETTINGS: Record<
 export default function PdfToImagesPage() {
 	const { isInstant } = useInstantMode();
 	const [file, setFile] = useState<File | null>(null);
-	const [isProcessing, setIsProcessing] = useState(false);
-	const [progress, setProgress] = useState(0);
-	const [error, setError] = useState<string | null>(null);
 	const [pageItems, setPageItems] = useState<PageItem[]>([]);
 	const [images, setImages] = useState<ConvertedImage[]>([]);
 	const [showSettings, setShowSettings] = useState(false);
 	const [format, setFormat] = useState<ImageFormat>("jpeg");
 	const [quality, setQuality] = useState<ImageQuality>("medium");
-	const processingRef = useRef(false);
 	const instantTriggeredRef = useRef(false);
+
+	// Use custom hook for processing state
+	const { isProcessing, progress, error, startProcessing, stopProcessing, setProgress, setError, clearError } = useFileProcessing();
 
 	const { pages, loading: pagesLoading } = usePdfPages(file, 0.3);
 
@@ -121,12 +121,8 @@ export default function PdfToImagesPage() {
 
 	// Process all pages with default settings (for instant mode)
 	const processAllPages = useCallback(async () => {
-		if (!file || processingRef.current || pages.length === 0) return;
-
-		processingRef.current = true;
-		setIsProcessing(true);
-		setProgress(0);
-		setError(null);
+		if (!file || pages.length === 0) return;
+		if (!startProcessing()) return;
 
 		try {
 			const settings = QUALITY_SETTINGS.medium;
@@ -144,10 +140,9 @@ export default function PdfToImagesPage() {
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Failed to convert PDF");
 		} finally {
-			setIsProcessing(false);
-			processingRef.current = false;
+			stopProcessing();
 		}
-	}, [file, pages]);
+	}, [file, pages, startProcessing, setProgress, setError, stopProcessing]);
 
 	// Instant mode: auto-convert when pages are loaded
 	useEffect(() => {
@@ -163,30 +158,30 @@ export default function PdfToImagesPage() {
 				images.forEach((img) => URL.revokeObjectURL(img.dataUrl));
 				instantTriggeredRef.current = false;
 				setFile(files[0]);
-				setError(null);
+				clearError();
 				setImages([]);
 				setPageItems([]);
 			}
 		},
-		[images],
+		[images, clearError],
 	);
 
 	const handleClear = useCallback(() => {
 		images.forEach((img) => URL.revokeObjectURL(img.dataUrl));
 		instantTriggeredRef.current = false;
 		setFile(null);
-		setError(null);
+		clearError();
 		setImages([]);
 		setPageItems([]);
-	}, [images]);
+	}, [images, clearError]);
 
-	const togglePage = (id: string) => {
+	const togglePage = useCallback((id: string) => {
 		setPageItems((prev) =>
 			prev.map((p) => (p.id === id ? { ...p, selected: !p.selected } : p)),
 		);
-	};
+	}, []);
 
-	const rotatePage = (id: string) => {
+	const rotatePage = useCallback((id: string) => {
 		setPageItems((prev) =>
 			prev.map((p) =>
 				p.id === id
@@ -194,18 +189,18 @@ export default function PdfToImagesPage() {
 					: p,
 			),
 		);
-	};
+	}, []);
 
-	const selectAll = () => {
+	const selectAll = useCallback(() => {
 		setPageItems((prev) => prev.map((p) => ({ ...p, selected: true })));
-	};
+	}, []);
 
-	const selectNone = () => {
+	const selectNone = useCallback(() => {
 		setPageItems((prev) => prev.map((p) => ({ ...p, selected: false })));
-	};
+	}, []);
 
-	const handleConvert = async () => {
-		if (!file || processingRef.current) return;
+	const handleConvert = useCallback(async () => {
+		if (!file) return;
 
 		const selectedItems = pageItems.filter((p) => p.selected);
 		if (selectedItems.length === 0) {
@@ -213,10 +208,7 @@ export default function PdfToImagesPage() {
 			return;
 		}
 
-		processingRef.current = true;
-		setIsProcessing(true);
-		setProgress(0);
-		setError(null);
+		if (!startProcessing()) return;
 
 		try {
 			const settings = QUALITY_SETTINGS[quality];
@@ -236,21 +228,20 @@ export default function PdfToImagesPage() {
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Failed to convert PDF");
 		} finally {
-			setIsProcessing(false);
-			processingRef.current = false;
+			stopProcessing();
 		}
-	};
+	}, [file, pageItems, quality, format, startProcessing, setProgress, setError, stopProcessing]);
 
 	const handleDownloadAll = () => {
 		if (file && images.length > 0) {
-			const baseName = file.name.replace(".pdf", "");
+			const baseName = getFileBaseName(file.name);
 			downloadImagesAsZip(images, baseName, format);
 		}
 	};
 
 	const handleDownloadSingle = (image: ConvertedImage) => {
 		if (file) {
-			const baseName = file.name.replace(".pdf", "");
+			const baseName = getFileBaseName(file.name);
 			const ext = format === "png" ? "png" : "jpg";
 			downloadImage(image.blob, `${baseName}_page${image.pageNumber}.${ext}`);
 		}
@@ -261,24 +252,31 @@ export default function PdfToImagesPage() {
 		setImages([]);
 	};
 
-	const handleNewFile = () => {
+	const handleNewFile = useCallback(() => {
 		images.forEach((img) => URL.revokeObjectURL(img.dataUrl));
 		instantTriggeredRef.current = false;
 		setFile(null);
 		setImages([]);
-		setError(null);
+		clearError();
 		setPageItems([]);
-	};
+	}, [images, clearError]);
 
-	const selectedCount = pageItems.filter((p) => p.selected).length;
-	const rotatedCount = pageItems.filter(
-		(p) => p.selected && p.rotation !== 0,
-	).length;
+	// Memoize computed counts to prevent recalculation on every render
+	const { selectedCount, rotatedCount } = useMemo(() => {
+		const selected = pageItems.filter((p) => p.selected).length;
+		const rotated = pageItems.filter((p) => p.selected && p.rotation !== 0).length;
+		return { selectedCount: selected, rotatedCount: rotated };
+	}, [pageItems]);
 
-	const getPagePreview = (pageNumber: number) => {
-		const page = pages.find((p) => p.pageNumber === pageNumber);
-		return page?.dataUrl || "";
-	};
+	// Memoize page preview lookup for O(1) access
+	const pagePreviewMap = useMemo(() => {
+		return new Map(pages.map((p) => [p.pageNumber, p.dataUrl]));
+	}, [pages]);
+
+	const getPagePreview = useCallback(
+		(pageNumber: number) => pagePreviewMap.get(pageNumber) || "",
+		[pagePreviewMap]
+	);
 
 	// Results view
 	if (images.length > 0) {
@@ -343,6 +341,8 @@ export default function PdfToImagesPage() {
 										src={image.dataUrl}
 										alt={`Page ${image.pageNumber}`}
 										className="w-full h-auto block"
+										loading="lazy"
+										decoding="async"
 									/>
 									<div className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
 										<button
@@ -539,6 +539,8 @@ export default function PdfToImagesPage() {
 														alt={`Page ${item.pageNumber}`}
 														className="w-full h-full object-contain transition-transform"
 														style={{ transform: `rotate(${item.rotation}deg)` }}
+														loading="lazy"
+														decoding="async"
 														draggable={false}
 													/>
 												</div>

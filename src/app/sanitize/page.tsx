@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { PdfIcon, SanitizeIcon } from "@/components/icons";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import {
@@ -11,8 +11,9 @@ import {
 	SuccessCard,
 } from "@/components/pdf/shared";
 import { useInstantMode } from "@/components/shared/InstantModeToggle";
+import { useFileProcessing } from "@/hooks";
 import { downloadBlob, getPDFMetadata, sanitizePDF } from "@/lib/pdf-utils";
-import { formatFileSize } from "@/lib/utils";
+import { formatFileSize, getFileBaseName } from "@/lib/utils";
 
 interface SanitizeResult {
 	data: Uint8Array;
@@ -35,19 +36,14 @@ interface Metadata {
 export default function SanitizePage() {
 	const { isInstant, isLoaded } = useInstantMode();
 	const [file, setFile] = useState<File | null>(null);
-	const [isProcessing, setIsProcessing] = useState(false);
-	const [progress, setProgress] = useState(0);
-	const [error, setError] = useState<string | null>(null);
 	const [result, setResult] = useState<SanitizeResult | null>(null);
 	const [metadata, setMetadata] = useState<Metadata | null>(null);
-	const processingRef = useRef(false);
+
+	// Use custom hook for processing state
+	const { isProcessing, progress, error, startProcessing, stopProcessing, setProgress, setError, clearError } = useFileProcessing();
 
 	const processFile = useCallback(async (fileToProcess: File) => {
-		if (processingRef.current) return;
-		processingRef.current = true;
-		setIsProcessing(true);
-		setProgress(0);
-		setError(null);
+		if (!startProcessing()) return;
 		setResult(null);
 
 		try {
@@ -55,7 +51,7 @@ export default function SanitizePage() {
 			const { data, removedFields } = await sanitizePDF(fileToProcess);
 			setProgress(90);
 
-			const baseName = fileToProcess.name.replace(/\.pdf$/i, "");
+			const baseName = getFileBaseName(fileToProcess.name);
 			setResult({
 				data,
 				filename: `${baseName}_sanitized.pdf`,
@@ -65,17 +61,16 @@ export default function SanitizePage() {
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Failed to sanitize PDF");
 		} finally {
-			setIsProcessing(false);
-			processingRef.current = false;
+			stopProcessing();
 		}
-	}, []);
+	}, [startProcessing, setProgress, setError, stopProcessing]);
 
 	const handleFileSelected = useCallback(
 		async (files: File[]) => {
 			if (files.length > 0) {
 				const selectedFile = files[0];
 				setFile(selectedFile);
-				setError(null);
+				clearError();
 				setResult(null);
 
 				// Load metadata to show what will be removed
@@ -91,36 +86,35 @@ export default function SanitizePage() {
 				}
 			}
 		},
-		[isInstant, processFile],
+		[isInstant, processFile, clearError],
 	);
 
 	const handleClear = useCallback(() => {
 		setFile(null);
-		setError(null);
+		clearError();
 		setResult(null);
 		setMetadata(null);
-	}, []);
+	}, [clearError]);
 
-	const handleSanitize = async () => {
+	const handleSanitize = useCallback(async () => {
 		if (!file) return;
 		processFile(file);
-	};
+	}, [file, processFile]);
 
-	const handleDownload = (e: React.MouseEvent) => {
+	const handleDownload = useCallback((e: React.MouseEvent) => {
 		e.preventDefault();
 		e.stopPropagation();
 		if (result) {
 			downloadBlob(result.data, result.filename);
 		}
-	};
+	}, [result]);
 
-	const handleStartOver = () => {
+	const handleStartOver = useCallback(() => {
 		setFile(null);
 		setResult(null);
-		setError(null);
-		setProgress(0);
+		clearError();
 		setMetadata(null);
-	};
+	}, [clearError]);
 
 	if (!isLoaded) return null;
 

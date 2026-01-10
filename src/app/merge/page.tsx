@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { LoaderIcon, MergeIcon } from "@/components/icons";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import { FileList } from "@/components/pdf/file-list";
@@ -10,27 +10,26 @@ import {
 	ProgressBar,
 	SuccessCard,
 } from "@/components/pdf/shared";
-import { downloadBlob, mergePDFs } from "@/lib/pdf-utils";
-import { formatFileSize } from "@/lib/utils";
+import { useFileProcessing, usePdfDataResult } from "@/hooks";
+import { mergePDFs } from "@/lib/pdf-utils";
+import { formatFileSize, getFileBaseName } from "@/lib/utils";
 
 interface FileItem {
 	file: File;
 	id: string;
 }
 
-interface MergeResult {
-	data: Uint8Array;
-	filename: string;
+interface MergeMetadata {
 	originalCount: number;
 	totalSize: number;
 }
 
 export default function MergePage() {
 	const [files, setFiles] = useState<FileItem[]>([]);
-	const [isProcessing, setIsProcessing] = useState(false);
-	const [progress, setProgress] = useState(0);
-	const [error, setError] = useState<string | null>(null);
-	const [result, setResult] = useState<MergeResult | null>(null);
+
+	// Use custom hooks
+	const { isProcessing, progress, error, startProcessing, stopProcessing, setProgress, setError } = useFileProcessing();
+	const { result, setResult, clearResult, download } = usePdfDataResult<MergeMetadata>();
 
 	const handleFilesSelected = useCallback((newFiles: File[]) => {
 		const newItems = newFiles.map((file) => ({
@@ -38,14 +37,13 @@ export default function MergePage() {
 			id: crypto.randomUUID(),
 		}));
 		setFiles((prev) => [...prev, ...newItems]);
-		setError(null);
-		setResult(null);
-	}, []);
+		clearResult();
+	}, [clearResult]);
 
 	const handleRemove = useCallback((id: string) => {
 		setFiles((prev) => prev.filter((f) => f.id !== id));
-		setResult(null);
-	}, []);
+		clearResult();
+	}, [clearResult]);
 
 	const handleReorder = useCallback((fromIndex: number, toIndex: number) => {
 		setFiles((prev) => {
@@ -54,25 +52,21 @@ export default function MergePage() {
 			newFiles.splice(toIndex, 0, moved);
 			return newFiles;
 		});
-		setResult(null);
-	}, []);
+		clearResult();
+	}, [clearResult]);
 
 	const handleClear = useCallback(() => {
 		setFiles([]);
-		setError(null);
-		setResult(null);
-	}, []);
+		clearResult();
+	}, [clearResult]);
 
-	const handleMerge = async () => {
+	const handleMerge = useCallback(async () => {
 		if (files.length < 2) {
 			setError("Please select at least 2 PDF files to merge");
 			return;
 		}
 
-		setIsProcessing(true);
-		setProgress(0);
-		setError(null);
-		setResult(null);
+		if (!startProcessing()) return;
 
 		try {
 			setProgress(20);
@@ -84,38 +78,37 @@ export default function MergePage() {
 			setProgress(80);
 			await new Promise((r) => setTimeout(r, 100));
 
-			const firstName = files[0].file.name.replace(".pdf", "");
+			const firstName = getFileBaseName(files[0].file.name);
 			const totalSize = files.reduce((acc, f) => acc + f.file.size, 0);
 
-			setResult({
-				data: mergedPdf,
-				filename: `${firstName}_merged.pdf`,
-				originalCount: files.length,
-				totalSize,
-			});
-
+			setResult(
+				mergedPdf,
+				`${firstName}_merged.pdf`,
+				{ originalCount: files.length, totalSize }
+			);
 			setProgress(100);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Failed to merge PDFs");
 		} finally {
-			setIsProcessing(false);
+			stopProcessing();
 		}
-	};
+	}, [files, startProcessing, setProgress, setResult, setError, stopProcessing]);
 
-	const handleDownload = (e: React.MouseEvent) => {
+	const handleDownload = useCallback((e: React.MouseEvent) => {
 		e.preventDefault();
 		e.stopPropagation();
-		if (result) {
-			downloadBlob(result.data, result.filename);
-		}
-	};
+		download();
+	}, [download]);
 
-	const handleStartOver = () => {
+	const handleStartOver = useCallback(() => {
 		setFiles([]);
-		setResult(null);
-		setError(null);
-		setProgress(0);
-	};
+		clearResult();
+	}, [clearResult]);
+
+	const buttonLabel = useMemo(() =>
+		files.length > 0 ? `Merge ${files.length} PDFs` : "Merge PDFs",
+		[files.length]
+	);
 
 	return (
 		<div className="page-enter max-w-2xl mx-auto space-y-8">
@@ -136,7 +129,7 @@ export default function MergePage() {
 					startOverLabel="Merge More Files"
 				>
 					<p className="text-muted-foreground">
-						{result.originalCount} files combined into one PDF
+						{result.metadata?.originalCount} files combined into one PDF
 					</p>
 					<div className="inline-flex items-center gap-4 px-5 py-4 bg-muted border-2 border-foreground">
 						<div className="pdf-icon-box">
@@ -163,9 +156,7 @@ export default function MergePage() {
 					</div>
 				</SuccessCard>
 			) : (
-				// Upload & Process State
 				<div className="space-y-6">
-					{/* Dropzone */}
 					<FileDropzone
 						accept=".pdf"
 						multiple
@@ -175,7 +166,6 @@ export default function MergePage() {
 						subtitle="or click to browse"
 					/>
 
-					{/* File List */}
 					<FileList
 						files={files}
 						onRemove={handleRemove}
@@ -188,7 +178,6 @@ export default function MergePage() {
 						<ProgressBar progress={progress} label="Merging your PDFs..." />
 					)}
 
-					{/* Merge Button */}
 					<button
 						type="button"
 						onClick={handleMerge}
@@ -203,12 +192,11 @@ export default function MergePage() {
 						) : (
 							<>
 								<MergeIcon className="w-5 h-5" />
-								Merge {files.length > 0 ? `${files.length} PDFs` : "PDFs"}
+								{buttonLabel}
 							</>
 						)}
 					</button>
 
-					{/* Hint */}
 					{files.length === 1 && (
 						<p className="text-sm text-muted-foreground text-center font-medium">
 							Add at least one more PDF to merge

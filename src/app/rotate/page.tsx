@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useState, useMemo } from "react";
 import { LoaderIcon, RotateIcon } from "@/components/icons";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import {
@@ -15,6 +15,7 @@ import {
 	SuccessCard,
 } from "@/components/pdf/shared";
 import { downloadBlob, rotatePDF } from "@/lib/pdf-utils";
+import { getFileBaseName } from "@/lib/utils";
 
 interface RotateResult {
 	data: Uint8Array;
@@ -51,33 +52,45 @@ export default function RotatePage() {
 	}, []);
 
 	// Rotate a single page by 90 degrees
-	const rotatePage = (pageNumber: number) => {
+	const rotatePage = useCallback((pageNumber: number) => {
 		setPageRotations((prev) => {
 			const current = prev[pageNumber] || 0;
 			const next = (current + 90) % 360;
 			return { ...prev, [pageNumber]: next };
 		});
-	};
+	}, []);
 
 	// Rotate all pages by 90 degrees
-	const rotateAll = (direction: 90 | -90) => {
+	const rotateAllRight = useCallback(() => {
 		setPageRotations((prev) => {
 			const newRotations: Record<number, number> = {};
 			pages.forEach((page) => {
 				const current = prev[page.pageNumber] || 0;
-				const next = (current + direction + 360) % 360;
+				const next = (current + 90) % 360;
 				newRotations[page.pageNumber] = next;
 			});
 			return newRotations;
 		});
-	};
+	}, [pages]);
+
+	const rotateAllLeft = useCallback(() => {
+		setPageRotations((prev) => {
+			const newRotations: Record<number, number> = {};
+			pages.forEach((page) => {
+				const current = prev[page.pageNumber] || 0;
+				const next = (current - 90 + 360) % 360;
+				newRotations[page.pageNumber] = next;
+			});
+			return newRotations;
+		});
+	}, [pages]);
 
 	// Reset all rotations
-	const resetAll = () => {
+	const resetAll = useCallback(() => {
 		setPageRotations({});
-	};
+	}, []);
 
-	const handleRotate = async () => {
+	const handleRotate = useCallback(async () => {
 		if (!file) return;
 
 		// Check if any pages have rotation
@@ -122,7 +135,7 @@ export default function RotatePage() {
 
 			// Get final result
 			const finalData = new Uint8Array(await currentFile.arrayBuffer());
-			const baseName = file.name.replace(".pdf", "");
+			const baseName = getFileBaseName(file.name);
 
 			setResult({
 				data: finalData,
@@ -133,26 +146,27 @@ export default function RotatePage() {
 		} finally {
 			setIsProcessing(false);
 		}
-	};
+	}, [file, pageRotations]);
 
-	const handleDownload = (e: React.MouseEvent) => {
+	const handleDownload = useCallback((e: React.MouseEvent) => {
 		e.preventDefault();
 		e.stopPropagation();
 		if (result) {
 			downloadBlob(result.data, result.filename);
 		}
-	};
+	}, [result]);
 
-	const handleStartOver = () => {
+	const handleStartOver = useCallback(() => {
 		setFile(null);
 		setResult(null);
 		setError(null);
 		setPageRotations({});
-	};
+	}, []);
 
-	const rotatedCount = Object.values(pageRotations).filter(
-		(r) => r !== 0,
-	).length;
+	const rotatedCount = useMemo(
+		() => Object.values(pageRotations).filter((r) => r !== 0).length,
+		[pageRotations]
+	);
 
 	return (
 		<div className="page-enter max-w-5xl mx-auto space-y-8">
@@ -215,7 +229,7 @@ export default function RotatePage() {
 						<div className="flex flex-wrap gap-2">
 							<button
 								type="button"
-								onClick={() => rotateAll(90)}
+								onClick={rotateAllRight}
 								className="flex-1 px-3 py-2.5 sm:px-4 bg-muted border-2 border-foreground font-bold text-sm hover:bg-accent transition-colors flex items-center justify-center gap-1.5 sm:gap-2"
 							>
 								<svg
@@ -233,7 +247,7 @@ export default function RotatePage() {
 							</button>
 							<button
 								type="button"
-								onClick={() => rotateAll(-90)}
+								onClick={rotateAllLeft}
 								className="flex-1 px-3 py-2.5 sm:px-4 bg-muted border-2 border-foreground font-bold text-sm hover:bg-accent transition-colors flex items-center justify-center gap-1.5 sm:gap-2"
 							>
 								<svg

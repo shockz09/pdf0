@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import {
 	ArrowLeftIcon,
 	DownloadIcon,
@@ -10,6 +10,8 @@ import {
 } from "@/components/icons";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import { useInstantMode } from "@/components/shared/InstantModeToggle";
+import { ErrorBox } from "@/components/shared";
+import { useFileProcessing } from "@/hooks";
 import { createSearchablePDF } from "@/lib/ocr-utils";
 import { pdfToImages } from "@/lib/pdf-image-utils";
 import { downloadBlob } from "@/lib/pdf-utils";
@@ -20,15 +22,14 @@ export default function OcrPage() {
 	const { isInstant, isLoaded } = useInstantMode();
 	const [file, setFile] = useState<File | null>(null);
 	const [mode, setMode] = useState<OCRMode>("searchable");
-	const [isProcessing, setIsProcessing] = useState(false);
-	const [progress, setProgress] = useState(0);
 	const [statusText, setStatusText] = useState("");
-	const [error, setError] = useState<string | null>(null);
 	const [extractedText, setExtractedText] = useState<string>("");
 	const [searchablePdf, setSearchablePdf] = useState<Uint8Array | null>(null);
 	const [language, setLanguage] = useState("eng");
 	const [copied, setCopied] = useState(false);
-	const processingRef = useRef(false);
+
+	// Use custom hook for processing state
+	const { isProcessing, progress, error, startProcessing, stopProcessing, setProgress, setError, clearError } = useFileProcessing();
 
 	const languages = [
 		{ code: "eng", name: "English" },
@@ -47,11 +48,7 @@ export default function OcrPage() {
 
 	const processFile = useCallback(
 		async (fileToProcess: File, ocrMode: OCRMode, lang: string) => {
-			if (processingRef.current) return;
-			processingRef.current = true;
-			setIsProcessing(true);
-			setProgress(0);
-			setError(null);
+			if (!startProcessing()) return;
 			setExtractedText("");
 			setSearchablePdf(null);
 
@@ -114,19 +111,18 @@ export default function OcrPage() {
 			} catch (err) {
 				setError(err instanceof Error ? err.message : "OCR processing failed");
 			} finally {
-				setIsProcessing(false);
+				stopProcessing();
 				setStatusText("");
-				processingRef.current = false;
 			}
 		},
-		[],
+		[startProcessing, setProgress, setError, stopProcessing],
 	);
 
 	const handleFileSelected = useCallback(
 		(files: File[]) => {
 			if (files.length > 0) {
 				setFile(files[0]);
-				setError(null);
+				clearError();
 				setExtractedText("");
 				setSearchablePdf(null);
 
@@ -136,28 +132,28 @@ export default function OcrPage() {
 				}
 			}
 		},
-		[isInstant, processFile],
+		[isInstant, processFile, clearError],
 	);
 
 	const handleClear = useCallback(() => {
 		setFile(null);
-		setError(null);
+		clearError();
 		setExtractedText("");
 		setSearchablePdf(null);
-	}, []);
+	}, [clearError]);
 
-	const handleProcess = async () => {
+	const handleProcess = useCallback(async () => {
 		if (!file) return;
 		processFile(file, mode, language);
-	};
+	}, [file, mode, language, processFile]);
 
-	const handleCopyText = async () => {
+	const handleCopyText = useCallback(async () => {
 		await navigator.clipboard.writeText(extractedText);
 		setCopied(true);
 		setTimeout(() => setCopied(false), 2000);
-	};
+	}, [extractedText]);
 
-	const handleDownloadText = () => {
+	const handleDownloadText = useCallback(() => {
 		const blob = new Blob([extractedText], { type: "text/plain" });
 		const url = URL.createObjectURL(blob);
 		const a = document.createElement("a");
@@ -169,22 +165,30 @@ export default function OcrPage() {
 		a.click();
 		document.body.removeChild(a);
 		URL.revokeObjectURL(url);
-	};
+	}, [extractedText, file]);
 
-	const handleDownloadSearchablePdf = () => {
+	const handleDownloadSearchablePdf = useCallback(() => {
 		if (searchablePdf && file) {
 			const filename = `${file.name.replace(/\.[^.]+$/, "")}_searchable.pdf`;
 			downloadBlob(searchablePdf, filename);
 		}
-	};
+	}, [searchablePdf, file]);
 
-	const handleStartOver = () => {
+	const handleStartOver = useCallback(() => {
 		setFile(null);
 		setExtractedText("");
 		setSearchablePdf(null);
-		setError(null);
-		setProgress(0);
-	};
+		clearError();
+	}, [clearError]);
+
+	// Mode handlers
+	const setModeSearchable = useCallback(() => setMode("searchable"), []);
+	const setModeExtract = useCallback(() => setMode("extract"), []);
+
+	// Language handler
+	const handleLanguageSelect = useCallback((code: string) => {
+		setLanguage(code);
+	}, []);
 
 	const hasResult = extractedText || searchablePdf;
 
@@ -366,7 +370,7 @@ export default function OcrPage() {
 						<div className="flex gap-2">
 							<button
 								type="button"
-								onClick={() => setMode("searchable")}
+								onClick={setModeSearchable}
 								className={`flex-1 px-4 py-3 border-2 font-bold text-sm transition-all text-left
                   ${
 										mode === "searchable"
@@ -384,7 +388,7 @@ export default function OcrPage() {
 							</button>
 							<button
 								type="button"
-								onClick={() => setMode("extract")}
+								onClick={setModeExtract}
 								className={`flex-1 px-4 py-3 border-2 font-bold text-sm transition-all text-left
                   ${
 										mode === "extract"
@@ -411,7 +415,7 @@ export default function OcrPage() {
 								<button
 									type="button"
 									key={lang.code}
-									onClick={() => setLanguage(lang.code)}
+									onClick={() => handleLanguageSelect(lang.code)}
 									className={`px-4 py-2 border-2 font-bold text-sm transition-all
                     ${
 											language === lang.code
@@ -433,7 +437,7 @@ export default function OcrPage() {
 									<button
 										type="button"
 										key={lang.code}
-										onClick={() => setLanguage(lang.code)}
+										onClick={() => handleLanguageSelect(lang.code)}
 										className={`px-4 py-2 border-2 font-bold text-sm transition-all
                       ${
 												language === lang.code
@@ -477,23 +481,7 @@ export default function OcrPage() {
 						</div>
 					</div>
 
-					{error && (
-						<div className="error-box animate-shake">
-							<svg
-								aria-hidden="true"
-								className="w-5 h-5"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-								strokeWidth="2"
-							>
-								<circle cx="12" cy="12" r="10" />
-								<line x1="12" y1="8" x2="12" y2="12" />
-								<line x1="12" y1="16" x2="12.01" y2="16" />
-							</svg>
-							<span className="font-medium">{error}</span>
-						</div>
-					)}
+					{error && <ErrorBox message={error} />}
 
 					{isProcessing && (
 						<div className="space-y-3">
