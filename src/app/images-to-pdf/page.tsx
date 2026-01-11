@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useState, useRef } from "react";
 import { FileIcon, GripIcon, LoaderIcon, XIcon } from "@/components/icons";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import {
@@ -84,7 +84,7 @@ export default function ImagesToPdfPage() {
 		setResult(null);
 	}, []);
 
-	const handleConvert = async () => {
+	const handleConvert = useCallback(async () => {
 		if (images.length === 0) return;
 
 		setIsProcessing(true);
@@ -114,44 +114,53 @@ export default function ImagesToPdfPage() {
 		} finally {
 			setIsProcessing(false);
 		}
-	};
+	}, [images, pageSize]);
 
-	const handleDownload = (e: React.MouseEvent) => {
+	const handleDownload = useCallback((e: React.MouseEvent) => {
 		e.preventDefault();
 		e.stopPropagation();
 		if (result) {
 			downloadBlob(result.data, result.filename);
 		}
-	};
+	}, [result]);
 
-	const handleStartOver = () => {
+	const handleStartOver = useCallback(() => {
 		setImages([]);
 		setResult(null);
 		setError(null);
 		setProgress(0);
-	};
+	}, []);
 
-	const handleDragStart = (e: React.DragEvent, index: number, id: string) => {
+	// Page size handlers
+	const setPageSizeA4 = useCallback(() => setPageSize("a4"), []);
+	const setPageSizeLetter = useCallback(() => setPageSize("letter"), []);
+	const setPageSizeFit = useCallback(() => setPageSize("fit"), []);
+
+	// Use ref to store handleReorder for stable reference in drag handler
+	const handleReorderRef = useRef(handleReorder);
+	handleReorderRef.current = handleReorder;
+
+	const handleDragStart = useCallback((e: React.DragEvent, index: number, id: string) => {
 		setDraggingId(id);
 		e.dataTransfer.setData("text/plain", index.toString());
-	};
+	}, []);
 
-	const handleDragOver = (e: React.DragEvent) => {
+	const handleDragOver = useCallback((e: React.DragEvent) => {
 		e.preventDefault();
-	};
+	}, []);
 
-	const handleDragEnd = () => {
+	const handleDragEnd = useCallback(() => {
 		setDraggingId(null);
-	};
+	}, []);
 
-	const handleDrop = (e: React.DragEvent, toIndex: number) => {
+	const handleDrop = useCallback((e: React.DragEvent, toIndex: number) => {
 		e.preventDefault();
 		const fromIndex = parseInt(e.dataTransfer.getData("text/plain"), 10);
 		if (fromIndex !== toIndex) {
-			handleReorder(fromIndex, toIndex);
+			handleReorderRef.current(fromIndex, toIndex);
 		}
 		setDraggingId(null);
-	};
+	}, []);
 
 	return (
 		<div className="page-enter max-w-5xl mx-auto space-y-8">
@@ -240,6 +249,8 @@ export default function ImagesToPdfPage() {
 												className="max-w-full max-h-full object-contain transition-transform duration-200"
 												style={{ transform: `rotate(${image.rotation}deg)` }}
 												draggable={false}
+												loading="lazy"
+												decoding="async"
 											/>
 										</div>
 										{/* Index badge */}
@@ -279,26 +290,33 @@ export default function ImagesToPdfPage() {
 							<div className="p-6 bg-card border-2 border-foreground space-y-3">
 								<span className="input-label">Page Size</span>
 								<div className="flex gap-2">
-									{(["a4", "letter", "fit"] as const).map((size) => (
-										<button
-											type="button"
-											key={size}
-											onClick={() => setPageSize(size)}
-											className={`px-6 py-3 border-2 font-bold transition-all flex-1
-                        ${
-													pageSize === size
-														? "bg-primary border-foreground text-white"
-														: "bg-muted border-foreground hover:bg-accent"
-												}
-                      `}
-										>
-											{size === "a4"
-												? "A4"
-												: size === "letter"
-													? "Letter"
-													: "Fit to Image"}
-										</button>
-									))}
+									<button
+										type="button"
+										onClick={setPageSizeA4}
+										className={`px-6 py-3 border-2 font-bold transition-all flex-1
+											${pageSize === "a4" ? "bg-primary border-foreground text-white" : "bg-muted border-foreground hover:bg-accent"}
+										`}
+									>
+										A4
+									</button>
+									<button
+										type="button"
+										onClick={setPageSizeLetter}
+										className={`px-6 py-3 border-2 font-bold transition-all flex-1
+											${pageSize === "letter" ? "bg-primary border-foreground text-white" : "bg-muted border-foreground hover:bg-accent"}
+										`}
+									>
+										Letter
+									</button>
+									<button
+										type="button"
+										onClick={setPageSizeFit}
+										className={`px-6 py-3 border-2 font-bold transition-all flex-1
+											${pageSize === "fit" ? "bg-primary border-foreground text-white" : "bg-muted border-foreground hover:bg-accent"}
+										`}
+									>
+										Fit to Image
+									</button>
 								</div>
 							</div>
 

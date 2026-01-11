@@ -12,6 +12,7 @@ import {
 } from "@/components/image/shared";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import { useInstantMode } from "@/components/shared/InstantModeToggle";
+import { useImagePaste, useObjectURL } from "@/hooks";
 import {
 	useBackgroundRemoval,
 	compositeOnColor,
@@ -25,6 +26,7 @@ import { downloadImage, formatFileSize } from "@/lib/image-utils";
 function RemoveBgIcon({ className }: { className?: string }) {
 	return (
 		<svg
+			aria-hidden="true"
 			className={className}
 			viewBox="0 0 24 24"
 			fill="none"
@@ -67,17 +69,18 @@ export default function RemoveBgPage() {
 	const { removeBackground, isProcessing, progress, error: bgError } = useBackgroundRemoval();
 
 	const [file, setFile] = useState<File | null>(null);
-	const [preview, setPreview] = useState<string | null>(null);
 	const [imageDimensions, setImageDimensions] = useState<{ width: number; height: number } | null>(null);
 	const [error, setError] = useState<string | null>(null);
 	const [result, setResult] = useState<RemoveResult | null>(null);
 	const [modelQuality, setModelQuality] = useState<ModelQuality>("medium");
 
+	// Use custom hooks for URL management
+	const { url: preview, setSource: setPreview, revoke: revokePreview } = useObjectURL();
+	const { url: bgImagePreview, setSource: setBgImagePreview, revoke: revokeBgImagePreview } = useObjectURL();
+
 	// Background options
 	const [bgType, setBgType] = useState<BackgroundType>("transparent");
 	const [bgColor, setBgColor] = useState("#FFFFFF");
-	const [bgImageFile, setBgImageFile] = useState<File | null>(null);
-	const [bgImagePreview, setBgImagePreview] = useState<string | null>(null);
 
 	// Foreground result (before background applied)
 	const [foregroundUrl, setForegroundUrl] = useState<string | null>(null);
@@ -99,8 +102,9 @@ export default function RemoveBgPage() {
 				// Get image dimensions
 				const img = new Image();
 				img.src = url;
-				await new Promise((resolve) => {
-					img.onload = resolve;
+				await new Promise<void>((resolve, reject) => {
+					img.onload = () => resolve();
+					img.onerror = () => reject(new Error("Failed to load image"));
 				});
 				setImageDimensions({ width: img.width, height: img.height });
 
@@ -183,12 +187,14 @@ export default function RemoveBgPage() {
 				setResult(null);
 				setForegroundUrl(null);
 				instantTriggeredRef.current = false;
-				const url = URL.createObjectURL(selectedFile);
-				setPreview(url);
+				setPreview(selectedFile);
 			}
 		},
-		[],
+		[setPreview],
 	);
+
+	// Use clipboard paste hook
+	useImagePaste(handleFileSelected, !result);
 
 	// Instant mode
 	useEffect(() => {
@@ -199,50 +205,21 @@ export default function RemoveBgPage() {
 	}, [isInstant, file, isProcessing, result, processFile, modelQuality]);
 
 	const handleClear = useCallback(() => {
-		if (preview) URL.revokeObjectURL(preview);
-		if (bgImagePreview) URL.revokeObjectURL(bgImagePreview);
+		revokePreview();
+		revokeBgImagePreview();
 		setFile(null);
-		setPreview(null);
 		setError(null);
 		setResult(null);
 		setForegroundUrl(null);
-		setBgImageFile(null);
-		setBgImagePreview(null);
-	}, [preview, bgImagePreview]);
+	}, [revokePreview, revokeBgImagePreview]);
 
-	const handleBgImageSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+	const handleBgImageSelected = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
 		const files = e.target.files;
-		if (files && files[0]) {
-			if (bgImagePreview) URL.revokeObjectURL(bgImagePreview);
-			const url = URL.createObjectURL(files[0]);
-			setBgImageFile(files[0]);
-			setBgImagePreview(url);
+		if (files?.[0]) {
+			setBgImagePreview(files[0]);
 			setBgType("image");
 		}
-	};
-
-	useEffect(() => {
-		return () => {
-			if (preview) URL.revokeObjectURL(preview);
-			if (bgImagePreview) URL.revokeObjectURL(bgImagePreview);
-		};
-	}, [preview, bgImagePreview]);
-
-	useEffect(() => {
-		const handlePaste = (e: ClipboardEvent) => {
-			const items = e.clipboardData?.items;
-			if (!items) return;
-			for (const item of items) {
-				if (item.type.startsWith("image/")) {
-					const file = item.getAsFile();
-					if (file) handleFileSelected([file]);
-					break;
-				}
-			}
-		};
-		window.addEventListener("paste", handlePaste);
-		return () => window.removeEventListener("paste", handlePaste);
-	}, [handleFileSelected]);
+	}, [setBgImagePreview]);
 
 	const handleProcess = async () => {
 		if (!file) return;
@@ -255,19 +232,16 @@ export default function RemoveBgPage() {
 		if (result) downloadImage(result.blob, result.filename);
 	};
 
-	const handleStartOver = () => {
-		if (preview) URL.revokeObjectURL(preview);
-		if (bgImagePreview) URL.revokeObjectURL(bgImagePreview);
+	const handleStartOver = useCallback(() => {
+		revokePreview();
+		revokeBgImagePreview();
 		setFile(null);
-		setPreview(null);
 		setResult(null);
 		setForegroundUrl(null);
 		setError(null);
 		setBgType("transparent");
-		setBgImageFile(null);
-		setBgImagePreview(null);
 		instantTriggeredRef.current = false;
-	};
+	}, [revokePreview, revokeBgImagePreview]);
 
 	const displayError = error || bgError;
 
@@ -311,6 +285,8 @@ export default function RemoveBgPage() {
 								src={result.url}
 								alt="Result"
 								className="relative max-h-64 mx-auto object-contain"
+								loading="lazy"
+								decoding="async"
 							/>
 						</div>
 					</SuccessCard>
@@ -401,14 +377,12 @@ export default function RemoveBgPage() {
 											src={bgImagePreview}
 											alt="Background"
 											className="max-h-32 mx-auto object-contain border-2 border-muted-foreground/30"
+											loading="lazy"
+											decoding="async"
 										/>
 										<button
 											type="button"
-											onClick={() => {
-												if (bgImagePreview) URL.revokeObjectURL(bgImagePreview);
-												setBgImageFile(null);
-												setBgImagePreview(null);
-											}}
+											onClick={revokeBgImagePreview}
 											className="absolute top-1 right-1 p-1 bg-foreground text-background text-xs font-bold"
 										>
 											X
@@ -442,11 +416,11 @@ export default function RemoveBgPage() {
 					/>
 
 					{/* Model Quality Selector */}
-					<div className="space-y-3">
-						<label className="text-sm font-medium text-foreground">
+					<fieldset className="space-y-3">
+						<legend className="text-sm font-medium text-foreground">
 							Quality
-						</label>
-						<div className="grid grid-cols-2 gap-3">
+						</legend>
+						<div className="grid grid-cols-2 gap-3" role="group">
 							{(["medium", "high"] as ModelQuality[]).map((quality) => (
 								<button
 									key={quality}
@@ -471,7 +445,7 @@ export default function RemoveBgPage() {
 						<p className="text-xs text-muted-foreground">
 							{MODEL_DESCRIPTIONS[modelQuality]}
 						</p>
-					</div>
+					</fieldset>
 
 					<div className="info-box">
 						<svg
@@ -506,6 +480,8 @@ export default function RemoveBgPage() {
 								src={preview}
 								alt="Preview"
 								className="max-h-64 mx-auto object-contain"
+								loading="lazy"
+								decoding="async"
 							/>
 						</div>
 					)}
@@ -519,11 +495,11 @@ export default function RemoveBgPage() {
 
 					{/* Model Quality Selector */}
 					{!isProcessing && (
-						<div className="space-y-3">
-							<label className="text-sm font-medium text-foreground">
+						<fieldset className="space-y-3">
+							<legend className="text-sm font-medium text-foreground">
 								Quality
-							</label>
-							<div className="grid grid-cols-2 gap-3">
+							</legend>
+							<div className="grid grid-cols-2 gap-3" role="group">
 								{(["medium", "high"] as ModelQuality[]).map((quality) => (
 									<button
 										key={quality}
@@ -545,7 +521,7 @@ export default function RemoveBgPage() {
 									</button>
 								))}
 							</div>
-						</div>
+						</fieldset>
 					)}
 
 					{displayError && <ErrorBox message={displayError} />}

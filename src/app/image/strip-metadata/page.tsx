@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
 	ImageIcon,
 	LoaderIcon,
@@ -16,109 +16,89 @@ import {
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import { useInstantMode } from "@/components/shared/InstantModeToggle";
 import {
+	useFileProcessing,
+	useImagePaste,
+	useObjectURL,
+	useProcessingResult,
+} from "@/hooks";
+import {
 	copyImageToClipboard,
-	downloadImage,
 	formatFileSize,
 	getOutputFilename,
 	stripMetadata,
 } from "@/lib/image-utils";
 
-interface StripResult {
-	blob: Blob;
-	filename: string;
+interface StripMetadata {
 	originalSize: number;
 }
 
 export default function StripMetadataPage() {
 	const { isInstant, isLoaded } = useInstantMode();
 	const [file, setFile] = useState<File | null>(null);
-	const [preview, setPreview] = useState<string | null>(null);
-	const [isProcessing, setIsProcessing] = useState(false);
-	const [error, setError] = useState<string | null>(null);
-	const [result, setResult] = useState<StripResult | null>(null);
-	const processingRef = useRef(false);
+
+	// Use custom hooks
+	const { url: preview, setSource: setPreview, revoke: revokePreview } = useObjectURL();
+	const { isProcessing, error, startProcessing, stopProcessing, setError } = useFileProcessing();
+	const { result, setResult, clearResult, download } = useProcessingResult<StripMetadata>();
 
 	const processFile = useCallback(async (fileToProcess: File) => {
-		if (processingRef.current) return;
-		processingRef.current = true;
-		setIsProcessing(true);
-		setError(null);
-		setResult(null);
+		if (!startProcessing()) return;
 
 		try {
 			const stripped = await stripMetadata(fileToProcess);
-			setResult({
-				blob: stripped,
-				filename: getOutputFilename(fileToProcess.name, undefined, "_clean"),
-				originalSize: fileToProcess.size,
-			});
+			setResult(
+				stripped,
+				getOutputFilename(fileToProcess.name, undefined, "_clean"),
+				{ originalSize: fileToProcess.size }
+			);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Failed to strip metadata");
 		} finally {
-			setIsProcessing(false);
-			processingRef.current = false;
+			stopProcessing();
 		}
-	}, []);
+	}, [startProcessing, setResult, setError, stopProcessing]);
 
-	const handleFileSelected = useCallback(
-		(files: File[]) => {
-			if (files.length > 0) {
-				const selectedFile = files[0];
-				setFile(selectedFile);
-				setError(null);
-				setResult(null);
-				const url = URL.createObjectURL(selectedFile);
-				if (preview) URL.revokeObjectURL(preview);
-				setPreview(url);
+	const handleFileSelected = useCallback((files: File[]) => {
+		if (files.length > 0) {
+			const selectedFile = files[0];
+			setFile(selectedFile);
+			clearResult();
+			setPreview(selectedFile);
 
-				// Auto-process if instant mode is on
-				if (isInstant) {
-					processFile(selectedFile);
-				}
+			if (isInstant) {
+				processFile(selectedFile);
 			}
-		},
-		[isInstant, processFile, preview],
-	);
+		}
+	}, [isInstant, processFile, clearResult, setPreview]);
 
-	useEffect(() => {
-		return () => {
-			if (preview) URL.revokeObjectURL(preview);
-		};
-	}, [preview]);
+	// Use clipboard paste hook
+	useImagePaste(handleFileSelected, !result);
 
-	useEffect(() => {
-		const handlePaste = (e: ClipboardEvent) => {
-			const items = e.clipboardData?.items;
-			if (!items) return;
-			for (const item of items) {
-				if (item.type.startsWith("image/")) {
-					const file = item.getAsFile();
-					if (file) handleFileSelected([file]);
-					break;
-				}
-			}
-		};
-		window.addEventListener("paste", handlePaste);
-		return () => window.removeEventListener("paste", handlePaste);
-	}, [handleFileSelected]);
-
-	const handleDownload = (e: React.MouseEvent) => {
-		e.preventDefault();
-		e.stopPropagation();
-		if (result) downloadImage(result.blob, result.filename);
-	};
-
-	const handleClear = () => {
-		if (preview) URL.revokeObjectURL(preview);
+	const handleClear = useCallback(() => {
+		revokePreview();
 		setFile(null);
-		setPreview(null);
-		setError(null);
-		setResult(null);
-	};
+		clearResult();
+	}, [revokePreview, clearResult]);
 
-	const handleStartOver = () => {
-		handleClear();
-	};
+	const handleDownload = useCallback((e: React.MouseEvent) => {
+		e.preventDefault();
+		download();
+	}, [download]);
+
+	const handleStartOver = useCallback(() => {
+		revokePreview();
+		setFile(null);
+		clearResult();
+	}, [revokePreview, clearResult]);
+
+	const handleProcess = useCallback(() => {
+		if (file) processFile(file);
+	}, [file, processFile]);
+
+	const showProcessingState = useMemo(() =>
+		isProcessing && !result,
+		[isProcessing, result]
+	);
 
 	if (!isLoaded) return null;
 
@@ -154,7 +134,7 @@ export default function StripMetadataPage() {
 						New file size: {formatFileSize(result.blob.size)}
 					</p>
 				</SuccessCard>
-			) : isProcessing ? (
+			) : showProcessingState ? (
 				<div className="border-2 border-foreground p-12 bg-card">
 					<div className="flex flex-col items-center justify-center gap-4">
 						<LoaderIcon className="w-8 h-8 animate-spin" />
@@ -167,11 +147,7 @@ export default function StripMetadataPage() {
 			) : error ? (
 				<div className="space-y-4">
 					<ErrorBox message={error} />
-					<button
-						type="button"
-						onClick={handleStartOver}
-						className="btn-secondary w-full"
-					>
+					<button type="button" onClick={handleStartOver} className="btn-secondary w-full">
 						Try Again
 					</button>
 				</div>
@@ -200,7 +176,6 @@ export default function StripMetadataPage() {
 					</div>
 				</div>
 			) : (
-				/* Manual mode - show file info and process button */
 				<div className="space-y-6">
 					{preview && (
 						<div className="border-2 border-foreground p-4 bg-muted/30">
@@ -208,6 +183,8 @@ export default function StripMetadataPage() {
 								src={preview}
 								alt="Preview"
 								className="max-h-48 mx-auto object-contain"
+								loading="lazy"
+								decoding="async"
 							/>
 						</div>
 					)}
@@ -234,12 +211,9 @@ export default function StripMetadataPage() {
 								<line x1="12" y1="17" x2="12.01" y2="17" />
 							</svg>
 							<div className="text-sm">
-								<p className="font-bold text-[#92400E] mb-1">
-									What will be removed
-								</p>
+								<p className="font-bold text-[#92400E] mb-1">What will be removed</p>
 								<p className="text-[#92400E]/80">
-									All EXIF metadata including camera info, GPS location, date
-									taken, and any other embedded data.
+									All EXIF metadata including camera info, GPS location, date taken, and any other embedded data.
 								</p>
 							</div>
 						</div>
@@ -247,7 +221,7 @@ export default function StripMetadataPage() {
 
 					<button
 						type="button"
-						onClick={() => processFile(file)}
+						onClick={handleProcess}
 						disabled={isProcessing}
 						className="btn-primary w-full"
 					>

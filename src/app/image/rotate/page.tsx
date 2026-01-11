@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import {
 	FlipHorizontalIcon,
 	FlipVerticalIcon,
@@ -14,8 +14,13 @@ import {
 } from "@/components/image/shared";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import {
+	useFileProcessing,
+	useImagePaste,
+	useObjectURL,
+	useProcessingResult,
+} from "@/hooks";
+import {
 	copyImageToClipboard,
-	downloadImage,
 	flipImage,
 	formatFileSize,
 	getOutputFilename,
@@ -26,70 +31,47 @@ type Rotation = 0 | 90 | 180 | 270;
 
 export default function ImageRotatePage() {
 	const [file, setFile] = useState<File | null>(null);
-	const [preview, setPreview] = useState<string | null>(null);
 	const [rotation, setRotation] = useState<Rotation>(0);
 	const [flipH, setFlipH] = useState(false);
 	const [flipV, setFlipV] = useState(false);
-	const [isProcessing, setIsProcessing] = useState(false);
-	const [error, setError] = useState<string | null>(null);
-	const [result, setResult] = useState<{ blob: Blob; filename: string } | null>(
-		null,
-	);
+
+	// Use custom hooks
+	const { url: preview, setSource: setPreview, revoke: revokePreview } = useObjectURL();
+	const { isProcessing, error, startProcessing, stopProcessing, setError } = useFileProcessing();
+	const { result, setResult, clearResult, download } = useProcessingResult();
 
 	const handleFileSelected = useCallback((files: File[]) => {
 		if (files.length > 0) {
 			setFile(files[0]);
-			setError(null);
-			setResult(null);
+			clearResult();
 			setRotation(0);
 			setFlipH(false);
 			setFlipV(false);
-			setPreview(URL.createObjectURL(files[0]));
+			setPreview(files[0]);
 		}
-	}, []);
+	}, [clearResult, setPreview]);
+
+	// Use clipboard paste hook
+	useImagePaste(handleFileSelected, !result);
 
 	const handleClear = useCallback(() => {
-		if (preview) URL.revokeObjectURL(preview);
+		revokePreview();
 		setFile(null);
-		setPreview(null);
-		setError(null);
-		setResult(null);
+		clearResult();
 		setRotation(0);
 		setFlipH(false);
 		setFlipV(false);
-	}, [preview]);
+	}, [revokePreview, clearResult]);
 
-	useEffect(() => {
-		return () => {
-			if (preview) URL.revokeObjectURL(preview);
-		};
-	}, [preview]);
+	const rotateLeft = useCallback(() =>
+		setRotation((prev) => ((prev - 90 + 360) % 360) as Rotation), []);
+	const rotateRight = useCallback(() =>
+		setRotation((prev) => ((prev + 90) % 360) as Rotation), []);
 
-	useEffect(() => {
-		const handlePaste = (e: ClipboardEvent) => {
-			const items = e.clipboardData?.items;
-			if (!items) return;
-			for (const item of items) {
-				if (item.type.startsWith("image/")) {
-					const f = item.getAsFile();
-					if (f) handleFileSelected([f]);
-					break;
-				}
-			}
-		};
-		window.addEventListener("paste", handlePaste);
-		return () => window.removeEventListener("paste", handlePaste);
-	}, [handleFileSelected]);
-
-	const rotateLeft = () =>
-		setRotation((prev) => ((prev - 90 + 360) % 360) as Rotation);
-	const rotateRight = () =>
-		setRotation((prev) => ((prev + 90) % 360) as Rotation);
-
-	const handleApply = async () => {
+	const handleApply = useCallback(async () => {
 		if (!file) return;
-		setIsProcessing(true);
-		setError(null);
+		if (!startProcessing()) return;
+
 		try {
 			let blob: Blob = file;
 			if (rotation !== 0) blob = await rotateImage(file, rotation);
@@ -103,39 +85,48 @@ export default function ImageRotatePage() {
 					new File([blob], file.name, { type: blob.type }),
 					"vertical",
 				);
-			setResult({
-				blob,
-				filename: getOutputFilename(file.name, undefined, "_transformed"),
-			});
+			setResult(blob, getOutputFilename(file.name, undefined, "_transformed"));
 		} catch (err) {
-			setError(
-				err instanceof Error ? err.message : "Failed to transform image",
-			);
+			setError(err instanceof Error ? err.message : "Failed to transform image");
 		} finally {
-			setIsProcessing(false);
+			stopProcessing();
 		}
-	};
+	}, [file, rotation, flipH, flipV, startProcessing, setResult, setError, stopProcessing]);
 
-	const handleDownload = (e: React.MouseEvent) => {
+	const handleDownload = useCallback((e: React.MouseEvent) => {
 		e.preventDefault();
-		if (result) downloadImage(result.blob, result.filename);
-	};
+		download();
+	}, [download]);
 
-	const handleStartOver = () => {
-		if (preview) URL.revokeObjectURL(preview);
+	const handleStartOver = useCallback(() => {
+		revokePreview();
 		setFile(null);
-		setPreview(null);
-		setResult(null);
-		setError(null);
+		clearResult();
 		setRotation(0);
 		setFlipH(false);
 		setFlipV(false);
-	};
+	}, [revokePreview, clearResult]);
 
-	const hasChanges = rotation !== 0 || flipH || flipV;
-	const previewStyle = {
+	const handleFlipH = useCallback(() => setFlipH((prev) => !prev), []);
+	const handleFlipV = useCallback(() => setFlipV((prev) => !prev), []);
+
+	const handleReset = useCallback(() => {
+		setRotation(0);
+		setFlipH(false);
+		setFlipV(false);
+	}, []);
+
+	const hasChanges = useMemo(() => rotation !== 0 || flipH || flipV, [rotation, flipH, flipV]);
+	const previewStyle = useMemo(() => ({
 		transform: `rotate(${rotation}deg) scaleX(${flipH ? -1 : 1}) scaleY(${flipV ? -1 : 1})`,
-	};
+	}), [rotation, flipH, flipV]);
+
+	const changesDescription = useMemo(() =>
+		[rotation !== 0 && `${rotation}°`, flipH && "H-flip", flipV && "V-flip"]
+			.filter(Boolean)
+			.join(", "),
+		[rotation, flipH, flipV]
+	);
 
 	return (
 		<div className="page-enter max-w-4xl mx-auto space-y-8">
@@ -202,6 +193,8 @@ export default function ImageRotatePage() {
 								alt="Preview"
 								style={previewStyle}
 								className="max-h-[180px] object-contain transition-transform duration-200 group-hover:scale-[1.02]"
+								loading="lazy"
+								decoding="async"
 							/>
 							<div className="absolute bottom-3 left-1/2 -translate-x-1/2 text-[10px] font-bold text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity">
 								Click to rotate →
@@ -272,7 +265,7 @@ export default function ImageRotatePage() {
 							<div className="flex gap-2">
 								<button
 									type="button"
-									onClick={() => setFlipH(!flipH)}
+									onClick={handleFlipH}
 									className={`flex-1 px-3 py-2.5 border-2 border-foreground font-bold text-sm transition-colors flex items-center justify-center gap-2 ${
 										flipH
 											? "bg-foreground text-background"
@@ -284,7 +277,7 @@ export default function ImageRotatePage() {
 								</button>
 								<button
 									type="button"
-									onClick={() => setFlipV(!flipV)}
+									onClick={handleFlipV}
 									className={`flex-1 px-3 py-2.5 border-2 border-foreground font-bold text-sm transition-colors flex items-center justify-center gap-2 ${
 										flipV
 											? "bg-foreground text-background"
@@ -301,22 +294,11 @@ export default function ImageRotatePage() {
 						{hasChanges && (
 							<div className="flex items-center justify-between p-3 bg-muted/50 border border-foreground/10">
 								<p className="text-xs text-muted-foreground">
-									Changes:{" "}
-									{[
-										rotation !== 0 && `${rotation}°`,
-										flipH && "H-flip",
-										flipV && "V-flip",
-									]
-										.filter(Boolean)
-										.join(", ")}
+									Changes: {changesDescription}
 								</p>
 								<button
 									type="button"
-									onClick={() => {
-										setRotation(0);
-										setFlipH(false);
-										setFlipV(false);
-									}}
+									onClick={handleReset}
 									className="text-xs font-semibold text-muted-foreground hover:text-foreground"
 								>
 									Reset

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import {
 	DownloadIcon,
 	FaviconIcon,
@@ -15,6 +15,11 @@ import {
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import { useInstantMode } from "@/components/shared/InstantModeToggle";
 import {
+	useFileProcessing,
+	useImagePaste,
+	useObjectURL,
+} from "@/hooks";
+import {
 	downloadImage,
 	type FaviconSet,
 	formatFileSize,
@@ -27,134 +32,77 @@ interface FaviconResult {
 }
 
 const pngSizes = [
-	{
-		key: "ico48",
-		label: "48×48",
-		filename: "favicon.png",
-		use: "Browser fallback",
-	},
-	{
-		key: "apple180",
-		label: "180×180",
-		filename: "apple-touch-icon.png",
-		use: "iOS Safari",
-	},
-	{
-		key: "android192",
-		label: "192×192",
-		filename: "android-chrome-192x192.png",
-		use: "Android",
-	},
-	{
-		key: "android512",
-		label: "512×512",
-		filename: "android-chrome-512x512.png",
-		use: "Android/PWA",
-	},
+	{ key: "ico48", label: "48×48", filename: "favicon.png", use: "Browser fallback" },
+	{ key: "apple180", label: "180×180", filename: "apple-touch-icon.png", use: "iOS Safari" },
+	{ key: "android192", label: "192×192", filename: "android-chrome-192x192.png", use: "Android" },
+	{ key: "android512", label: "512×512", filename: "android-chrome-512x512.png", use: "Android/PWA" },
 ];
 
 export default function FaviconPage() {
 	const { isInstant, isLoaded } = useInstantMode();
 	const [file, setFile] = useState<File | null>(null);
-	const [preview, setPreview] = useState<string | null>(null);
 	const [isSvgUpload, setIsSvgUpload] = useState(false);
-	const [isProcessing, setIsProcessing] = useState(false);
-	const [error, setError] = useState<string | null>(null);
 	const [result, setResult] = useState<FaviconResult | null>(null);
-	const processingRef = useRef(false);
+
+	// Use custom hooks
+	const { url: preview, setSource: setPreview, revoke: revokePreview } = useObjectURL();
+	const { isProcessing, error, startProcessing, stopProcessing, setError } = useFileProcessing();
 
 	const processFile = useCallback(async (fileToProcess: File) => {
-		if (processingRef.current) return;
-		processingRef.current = true;
-		setIsProcessing(true);
-		setError(null);
-		setResult(null);
+		if (!startProcessing()) return;
 
 		try {
 			const favicons = await generateFavicons(fileToProcess);
 			setResult({ favicons, hasSvg: !!favicons.svg });
 		} catch (err) {
-			setError(
-				err instanceof Error ? err.message : "Failed to generate favicons",
-			);
+			setError(err instanceof Error ? err.message : "Failed to generate favicons");
 		} finally {
-			setIsProcessing(false);
-			processingRef.current = false;
+			stopProcessing();
 		}
-	}, []);
+	}, [startProcessing, setError, stopProcessing]);
 
-	const handleFileSelected = useCallback(
-		(files: File[]) => {
-			if (files.length > 0) {
-				const selectedFile = files[0];
-				setFile(selectedFile);
-				setError(null);
-				setResult(null);
+	const handleFileSelected = useCallback((files: File[]) => {
+		if (files.length > 0) {
+			const selectedFile = files[0];
+			setFile(selectedFile);
+			setResult(null);
 
-				const isSvg =
-					selectedFile.type === "image/svg+xml" ||
-					selectedFile.name.endsWith(".svg");
-				setIsSvgUpload(isSvg);
+			const isSvg = selectedFile.type === "image/svg+xml" || selectedFile.name.endsWith(".svg");
+			setIsSvgUpload(isSvg);
+			setPreview(selectedFile);
 
-				const url = URL.createObjectURL(selectedFile);
-				setPreview(url);
-
-				if (isInstant) {
-					processFile(selectedFile);
-				}
+			if (isInstant) {
+				processFile(selectedFile);
 			}
-		},
-		[isInstant, processFile],
-	);
+		}
+	}, [isInstant, processFile, setPreview]);
+
+	// Use clipboard paste hook
+	useImagePaste(handleFileSelected, !result);
 
 	const handleClear = useCallback(() => {
-		if (preview) URL.revokeObjectURL(preview);
+		revokePreview();
 		setFile(null);
-		setPreview(null);
 		setIsSvgUpload(false);
-		setError(null);
 		setResult(null);
-	}, [preview]);
+	}, [revokePreview]);
 
-	useEffect(() => {
-		return () => {
-			if (preview) URL.revokeObjectURL(preview);
-		};
-	}, [preview]);
+	const handleGenerate = useCallback(() => {
+		if (file) processFile(file);
+	}, [file, processFile]);
 
-	useEffect(() => {
-		const handlePaste = (e: ClipboardEvent) => {
-			const items = e.clipboardData?.items;
-			if (!items) return;
-			for (const item of items) {
-				if (item.type.startsWith("image/")) {
-					const file = item.getAsFile();
-					if (file) handleFileSelected([file]);
-					break;
-				}
-			}
-		};
-		window.addEventListener("paste", handlePaste);
-		return () => window.removeEventListener("paste", handlePaste);
-	}, [handleFileSelected]);
-
-	const handleGenerate = async () => {
-		if (!file) return;
-		processFile(file);
-	};
-
-	const handleDownloadSvg = () => {
+	const handleDownloadSvg = useCallback(() => {
 		if (result?.favicons.svg) downloadImage(result.favicons.svg, "favicon.svg");
-	};
+	}, [result]);
 
-	const handleDownloadPng = (key: keyof FaviconSet, filename: string) => {
+	const handleDownloadPng = useCallback((key: keyof FaviconSet, filename: string) => {
 		if (result) {
 			const blob = result.favicons[key];
 			if (blob) downloadImage(blob, filename);
 		}
-	};
+	}, [result]);
 
-	const handleDownloadAll = async () => {
+	const handleDownloadAll = useCallback(async () => {
 		if (!result) return;
 
 		if (result.favicons.svg) {
@@ -169,16 +117,14 @@ export default function FaviconPage() {
 				await new Promise((resolve) => setTimeout(resolve, 200));
 			}
 		}
-	};
+	}, [result]);
 
-	const handleStartOver = () => {
-		if (preview) URL.revokeObjectURL(preview);
+	const handleStartOver = useCallback(() => {
+		revokePreview();
 		setFile(null);
-		setPreview(null);
 		setIsSvgUpload(false);
 		setResult(null);
-		setError(null);
-	};
+	}, [revokePreview]);
 
 	if (!isLoaded) return null;
 
@@ -196,12 +142,7 @@ export default function FaviconPage() {
 					<div className="success-card">
 						<div className="success-stamp">
 							<span className="success-stamp-text">Done</span>
-							<svg
-								aria-hidden="true"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-							>
+							<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor">
 								<polyline points="20 6 9 17 4 12" />
 							</svg>
 						</div>
@@ -209,16 +150,11 @@ export default function FaviconPage() {
 						<div className="space-y-4 mb-6">
 							<h2 className="text-3xl font-display">Favicons Generated!</h2>
 							<p className="text-muted-foreground">
-								{result.hasSvg ? "SVG + 4 PNG sizes" : "4 PNG sizes"} ready for
-								download
+								{result.hasSvg ? "SVG + 4 PNG sizes" : "4 PNG sizes"} ready for download
 							</p>
 						</div>
 
-						<button
-							type="button"
-							onClick={handleDownloadAll}
-							className="btn-success w-full mb-6"
-						>
+						<button type="button" onClick={handleDownloadAll} className="btn-success w-full mb-6">
 							<DownloadIcon className="w-5 h-5" />
 							Download All
 						</button>
@@ -231,53 +167,33 @@ export default function FaviconPage() {
 								<div className="flex items-center justify-between p-3 border-2 border-primary bg-primary/5">
 									<div className="flex items-center gap-3">
 										<div className="w-10 h-10 border-2 border-primary flex items-center justify-center bg-primary/10">
-											<span className="text-xs font-bold text-primary">
-												SVG
-											</span>
+											<span className="text-xs font-bold text-primary">SVG</span>
 										</div>
 										<div>
 											<p className="font-bold text-sm">favicon.svg</p>
-											<p className="text-xs text-primary font-semibold">
-												Primary - Modern browsers
-											</p>
+											<p className="text-xs text-primary font-semibold">Primary - Modern browsers</p>
 										</div>
 									</div>
-									<button
-										type="button"
-										onClick={handleDownloadSvg}
-										className="text-sm font-bold text-primary hover:underline"
-									>
+									<button type="button" onClick={handleDownloadSvg} className="text-sm font-bold text-primary hover:underline">
 										Download
 									</button>
 								</div>
 							)}
 
 							{pngSizes.map((size) => (
-								<div
-									key={size.key}
-									className="flex items-center justify-between p-3 border-2 border-foreground bg-background"
-								>
+								<div key={size.key} className="flex items-center justify-between p-3 border-2 border-foreground bg-background">
 									<div className="flex items-center gap-3">
 										<div className="w-10 h-10 border-2 border-foreground flex items-center justify-center bg-muted/30">
-											<span className="text-xs font-bold">
-												{size.label.split("×")[0]}
-											</span>
+											<span className="text-xs font-bold">{size.label.split("×")[0]}</span>
 										</div>
 										<div>
 											<p className="font-bold text-sm">{size.filename}</p>
-											<p className="text-xs text-muted-foreground">
-												{size.use}
-											</p>
+											<p className="text-xs text-muted-foreground">{size.use}</p>
 										</div>
 									</div>
 									<button
 										type="button"
-										onClick={() =>
-											handleDownloadPng(
-												size.key as keyof FaviconSet,
-												size.filename,
-											)
-										}
+										onClick={() => handleDownloadPng(size.key as keyof FaviconSet, size.filename)}
 										className="text-sm font-bold text-primary hover:underline"
 									>
 										Download
@@ -299,11 +215,7 @@ export default function FaviconPage() {
 						</pre>
 					</div>
 
-					<button
-						type="button"
-						onClick={handleStartOver}
-						className="btn-secondary w-full"
-					>
+					<button type="button" onClick={handleStartOver} className="btn-secondary w-full">
 						Generate from Another Image
 					</button>
 				</div>
@@ -350,6 +262,8 @@ export default function FaviconPage() {
 								src={preview}
 								alt="Preview"
 								className="w-32 h-32 mx-auto object-contain"
+								loading="lazy"
+								decoding="async"
 							/>
 							{isSvgUpload && (
 								<p className="text-center text-xs text-primary font-semibold mt-2">
@@ -375,10 +289,7 @@ export default function FaviconPage() {
 								</span>
 							)}
 							{pngSizes.map((size) => (
-								<span
-									key={size.key}
-									className="px-2 py-1 bg-background border border-foreground text-xs font-bold"
-								>
+								<span key={size.key} className="px-2 py-1 bg-background border border-foreground text-xs font-bold">
 									{size.label} PNG
 								</span>
 							))}
@@ -401,15 +312,9 @@ export default function FaviconPage() {
 						className="btn-primary w-full"
 					>
 						{isProcessing ? (
-							<>
-								<LoaderIcon className="w-5 h-5" />
-								Generating...
-							</>
+							<><LoaderIcon className="w-5 h-5" />Generating...</>
 						) : (
-							<>
-								<FaviconIcon className="w-5 h-5" />
-								Generate Favicons
-							</>
+							<><FaviconIcon className="w-5 h-5" />Generate Favicons</>
 						)}
 					</button>
 				</div>

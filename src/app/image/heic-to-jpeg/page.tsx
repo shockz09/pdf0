@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { HeicIcon, ImageIcon, LoaderIcon } from "@/components/icons";
 import {
 	ComparisonDisplay,
@@ -11,12 +11,13 @@ import {
 } from "@/components/image/shared";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import { useInstantMode } from "@/components/shared/InstantModeToggle";
+import { useFileProcessing } from "@/hooks";
 import {
-	convertHeicToJpeg,
 	copyImageToClipboard,
 	downloadImage,
 	formatFileSize,
 } from "@/lib/image-utils";
+import { convertHeicToJpeg } from "@/lib/heic-utils";
 
 interface ConvertResult {
 	blob: Blob;
@@ -27,18 +28,13 @@ interface ConvertResult {
 export default function HeicToJpegPage() {
 	const { isInstant, isLoaded } = useInstantMode();
 	const [file, setFile] = useState<File | null>(null);
-	const [isProcessing, setIsProcessing] = useState(false);
-	const [progress, setProgress] = useState(0);
-	const [error, setError] = useState<string | null>(null);
 	const [result, setResult] = useState<ConvertResult | null>(null);
-	const processingRef = useRef(false);
+
+	// Use custom hook for processing state
+	const { isProcessing, progress, error, startProcessing, stopProcessing, setProgress, setError, clearError } = useFileProcessing();
 
 	const processFile = useCallback(async (fileToProcess: File) => {
-		if (processingRef.current) return;
-		processingRef.current = true;
-		setIsProcessing(true);
-		setProgress(0);
-		setError(null);
+		if (!startProcessing()) return;
 		setResult(null);
 
 		try {
@@ -58,37 +54,35 @@ export default function HeicToJpegPage() {
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Failed to convert HEIC.");
 		} finally {
-			setIsProcessing(false);
-			processingRef.current = false;
+			stopProcessing();
 		}
-	}, []);
+	}, [startProcessing, setProgress, setError, stopProcessing]);
 
 	const handleFileSelected = useCallback(
 		(files: File[]) => {
 			if (files.length > 0) {
 				const selectedFile = files[0];
 				setFile(selectedFile);
-				setError(null);
+				clearError();
 				setResult(null);
 				if (isInstant) {
 					processFile(selectedFile);
 				}
 			}
 		},
-		[isInstant, processFile],
+		[isInstant, processFile, clearError],
 	);
 
-	const handleDownload = (e: React.MouseEvent) => {
+	const handleDownload = useCallback((e: React.MouseEvent) => {
 		e.preventDefault();
 		if (result) downloadImage(result.blob, result.filename);
-	};
+	}, [result]);
 
-	const handleClear = () => {
+	const handleClear = useCallback(() => {
 		setFile(null);
-		setError(null);
+		clearError();
 		setResult(null);
-		setProgress(0);
-	};
+	}, [clearError]);
 
 	if (!isLoaded) return null;
 

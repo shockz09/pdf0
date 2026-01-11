@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { LoaderIcon, ResizeIcon } from "@/components/icons";
 import {
 	ComparisonDisplay,
@@ -10,17 +10,20 @@ import {
 } from "@/components/image/shared";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import {
+	useFileProcessing,
+	useImagePaste,
+	useObjectURL,
+	useProcessingResult,
+} from "@/hooks";
+import {
 	copyImageToClipboard,
-	downloadImage,
 	formatFileSize,
 	getImageDimensions,
 	getOutputFilename,
 	resizeImage,
 } from "@/lib/image-utils";
 
-interface ResizeResult {
-	blob: Blob;
-	filename: string;
+interface ResizeMetadata {
 	originalDimensions: { width: number; height: number };
 	newDimensions: { width: number; height: number };
 }
@@ -35,7 +38,6 @@ const presets = [
 
 export default function ImageResizePage() {
 	const [file, setFile] = useState<File | null>(null);
-	const [preview, setPreview] = useState<string | null>(null);
 	const [originalDimensions, setOriginalDimensions] = useState<{
 		width: number;
 		height: number;
@@ -43,120 +45,97 @@ export default function ImageResizePage() {
 	const [width, setWidth] = useState<number>(800);
 	const [height, setHeight] = useState<number>(600);
 	const [maintainAspect, setMaintainAspect] = useState(true);
-	const [isProcessing, setIsProcessing] = useState(false);
-	const [error, setError] = useState<string | null>(null);
-	const [result, setResult] = useState<ResizeResult | null>(null);
+
+	// Use custom hooks
+	const { url: preview, setSource: setPreview, revoke: revokePreview } = useObjectURL();
+	const { isProcessing, error, startProcessing, stopProcessing, setError } = useFileProcessing();
+	const { result, setResult, clearResult, download } = useProcessingResult<ResizeMetadata>();
 
 	const handleFileSelected = useCallback(async (files: File[]) => {
 		if (files.length > 0) {
 			const selectedFile = files[0];
 			setFile(selectedFile);
-			setError(null);
-			setResult(null);
-			const url = URL.createObjectURL(selectedFile);
-			setPreview(url);
+			clearResult();
+			setPreview(selectedFile);
 			const dims = await getImageDimensions(selectedFile);
 			setOriginalDimensions(dims);
 			setWidth(dims.width);
 			setHeight(dims.height);
 		}
-	}, []);
+	}, [clearResult, setPreview]);
+
+	// Use clipboard paste hook
+	useImagePaste(handleFileSelected, !result);
 
 	const handleClear = useCallback(() => {
-		if (preview) URL.revokeObjectURL(preview);
+		revokePreview();
 		setFile(null);
-		setPreview(null);
 		setOriginalDimensions(null);
-		setError(null);
-		setResult(null);
-	}, [preview]);
+		clearResult();
+	}, [revokePreview, clearResult]);
 
-	useEffect(() => {
-		return () => {
-			if (preview) URL.revokeObjectURL(preview);
-		};
-	}, [preview]);
-
-	useEffect(() => {
-		const handlePaste = (e: ClipboardEvent) => {
-			const items = e.clipboardData?.items;
-			if (!items) return;
-			for (const item of items) {
-				if (item.type.startsWith("image/")) {
-					const f = item.getAsFile();
-					if (f) handleFileSelected([f]);
-					break;
-				}
-			}
-		};
-		window.addEventListener("paste", handlePaste);
-		return () => window.removeEventListener("paste", handlePaste);
-	}, [handleFileSelected]);
-
-	const handleWidthChange = (newWidth: number) => {
+	const handleWidthChange = useCallback((newWidth: number) => {
 		setWidth(newWidth);
 		if (maintainAspect && originalDimensions) {
 			setHeight(
-				Math.round(
-					newWidth / (originalDimensions.width / originalDimensions.height),
-				),
+				Math.round(newWidth / (originalDimensions.width / originalDimensions.height))
 			);
 		}
-	};
+	}, [maintainAspect, originalDimensions]);
 
-	const handleHeightChange = (newHeight: number) => {
+	const handleHeightChange = useCallback((newHeight: number) => {
 		setHeight(newHeight);
 		if (maintainAspect && originalDimensions) {
 			setWidth(
-				Math.round(
-					newHeight * (originalDimensions.width / originalDimensions.height),
-				),
+				Math.round(newHeight * (originalDimensions.width / originalDimensions.height))
 			);
 		}
-	};
+	}, [maintainAspect, originalDimensions]);
 
-	const applyPreset = (preset: { width: number; height: number }) => {
+	const applyPreset = useCallback((preset: { width: number; height: number }) => {
 		setMaintainAspect(false);
 		setWidth(preset.width);
 		setHeight(preset.height);
-	};
+	}, []);
 
-	const handleResize = async () => {
+	const handleResize = useCallback(async () => {
 		if (!file || !originalDimensions) return;
-		setIsProcessing(true);
-		setError(null);
+		if (!startProcessing()) return;
+
 		try {
 			const resized = await resizeImage(file, width, height, false);
-			setResult({
-				blob: resized,
-				filename: getOutputFilename(
-					file.name,
-					undefined,
-					`_${width}x${height}`,
-				),
-				originalDimensions,
-				newDimensions: { width, height },
-			});
+			setResult(
+				resized,
+				getOutputFilename(file.name, undefined, `_${width}x${height}`),
+				{ originalDimensions, newDimensions: { width, height } }
+			);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Failed to resize image");
 		} finally {
-			setIsProcessing(false);
+			stopProcessing();
 		}
-	};
+	}, [file, originalDimensions, width, height, startProcessing, setResult, setError, stopProcessing]);
 
-	const handleDownload = (e: React.MouseEvent) => {
+	const handleDownload = useCallback((e: React.MouseEvent) => {
 		e.preventDefault();
-		if (result) downloadImage(result.blob, result.filename);
-	};
+		download();
+	}, [download]);
 
-	const handleStartOver = () => {
-		if (preview) URL.revokeObjectURL(preview);
+	const handleStartOver = useCallback(() => {
+		revokePreview();
 		setFile(null);
-		setPreview(null);
 		setOriginalDimensions(null);
-		setResult(null);
-		setError(null);
-	};
+		clearResult();
+	}, [revokePreview, clearResult]);
+
+	const handleMaintainAspectChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+		setMaintainAspect(e.target.checked);
+	}, []);
+
+	const outputPercentage = useMemo(() => {
+		if (!originalDimensions) return 100;
+		return Math.round(((width * height) / (originalDimensions.width * originalDimensions.height)) * 100);
+	}, [width, height, originalDimensions]);
 
 	return (
 		<div className="page-enter max-w-4xl mx-auto space-y-8">
@@ -179,9 +158,9 @@ export default function ImageResizePage() {
 				>
 					<ComparisonDisplay
 						originalLabel="Original"
-						originalValue={`${result.originalDimensions.width}×${result.originalDimensions.height}`}
+						originalValue={`${result.metadata?.originalDimensions.width}×${result.metadata?.originalDimensions.height}`}
 						newLabel="New Size"
-						newValue={`${result.newDimensions.width}×${result.newDimensions.height}`}
+						newValue={`${result.metadata?.newDimensions.width}×${result.metadata?.newDimensions.height}`}
 					/>
 					<p className="text-sm text-muted-foreground">
 						File size: {formatFileSize(result.blob.size)}
@@ -216,11 +195,12 @@ export default function ImageResizePage() {
 								src={preview!}
 								alt="Preview"
 								className="max-h-[180px] object-contain"
+								loading="lazy"
+								decoding="async"
 							/>
 						</div>
 						<p className="text-xs text-muted-foreground truncate">
-							{file.name} • {originalDimensions?.width}×
-							{originalDimensions?.height}
+							{file.name} • {originalDimensions?.width}×{originalDimensions?.height}
 						</p>
 					</div>
 
@@ -274,7 +254,7 @@ export default function ImageResizePage() {
 								<input
 									type="checkbox"
 									checked={maintainAspect}
-									onChange={(e) => setMaintainAspect(e.target.checked)}
+									onChange={handleMaintainAspectChange}
 									className="w-4 h-4 border-2 border-foreground"
 								/>
 								<span className="text-xs font-medium">Lock aspect ratio</span>
@@ -289,16 +269,7 @@ export default function ImageResizePage() {
 									{width}×{height}
 								</span>
 								{originalDimensions && (
-									<span className="ml-2">
-										(
-										{Math.round(
-											((width * height) /
-												(originalDimensions.width *
-													originalDimensions.height)) *
-												100,
-										)}
-										% of original)
-									</span>
+									<span className="ml-2">({outputPercentage}% of original)</span>
 								)}
 							</p>
 						</div>

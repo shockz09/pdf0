@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
 	CopyIcon,
 	DownloadIcon,
@@ -9,8 +9,41 @@ import {
 } from "@/components/icons";
 import { ImagePageHeader } from "@/components/image/shared";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
+import { useImagePaste } from "@/hooks";
 import { gradientPresets, solidPresets } from "@/lib/gradient-presets";
 import { copyImageToClipboard } from "@/lib/image-utils";
+
+// Static styles for window chrome (macOS-style buttons)
+const windowChromeStyle: React.CSSProperties = {
+	display: "flex",
+	alignItems: "center",
+	gap: "8px",
+	padding: "11px 13px",
+	background: "linear-gradient(180deg, #e9e9e9 0%, #d4d4d4 100%)",
+	borderBottom: "1px solid #c0c0c0",
+};
+
+const windowButtonBase: React.CSSProperties = {
+	width: 12,
+	height: 12,
+	borderRadius: "50%",
+	boxShadow: "inset 0 0 0 0.5px rgba(0,0,0,0.12), inset 0 -0.5px 0.5px rgba(0,0,0,0.1), 0 0.5px 0.5px rgba(255,255,255,0.4)",
+};
+
+const windowButtonRed: React.CSSProperties = {
+	...windowButtonBase,
+	background: "linear-gradient(180deg, #ff6058 0%, #ea4640 100%)",
+};
+
+const windowButtonYellow: React.CSSProperties = {
+	...windowButtonBase,
+	background: "linear-gradient(180deg, #ffbe2f 0%, #e6a620 100%)",
+};
+
+const windowButtonGreen: React.CSSProperties = {
+	...windowButtonBase,
+	background: "linear-gradient(180deg, #2aca44 0%, #1db934 100%)",
+};
 
 export default function ScreenshotBeautifierPage() {
 	const [image, setImage] = useState<string | null>(null);
@@ -44,28 +77,17 @@ export default function ScreenshotBeautifierPage() {
 		}
 	}, []);
 
-	useEffect(() => {
-		const handlePaste = async (e: ClipboardEvent) => {
-			const items = e.clipboardData?.items;
-			if (!items) return;
-
-			for (const item of items) {
-				if (item.type.startsWith("image/")) {
-					const file = item.getAsFile();
-					if (file) {
-						setFileName("pasted-image.png");
-						const dataUrl = await fileToDataUrl(file);
-						setImage(dataUrl);
-						setExported(false);
-					}
-					break;
-				}
-			}
-		};
-
-		window.addEventListener("paste", handlePaste);
-		return () => window.removeEventListener("paste", handlePaste);
+	// Handle paste from clipboard using custom hook
+	const handlePaste = useCallback(async (files: File[]) => {
+		if (files.length > 0) {
+			const file = files[0];
+			setFileName("pasted-image.png");
+			const dataUrl = await fileToDataUrl(file);
+			setImage(dataUrl);
+			setExported(false);
+		}
 	}, []);
+	useImagePaste(handlePaste, !image);
 
 	const handleExport = async () => {
 		if (!canvasRef.current) return;
@@ -154,56 +176,18 @@ export default function ScreenshotBeautifierPage() {
 								}}
 							>
 								{windowChrome && (
-									<div
-										style={{
-											display: "flex",
-											alignItems: "center",
-											gap: "8px",
-											padding: "11px 13px",
-											background:
-												"linear-gradient(180deg, #e9e9e9 0%, #d4d4d4 100%)",
-											borderBottom: "1px solid #c0c0c0",
-										}}
-									>
-										<div
-											style={{
-												width: 12,
-												height: 12,
-												borderRadius: "50%",
-												background:
-													"linear-gradient(180deg, #ff6058 0%, #ea4640 100%)",
-												boxShadow:
-													"inset 0 0 0 0.5px rgba(0,0,0,0.12), inset 0 -0.5px 0.5px rgba(0,0,0,0.1), 0 0.5px 0.5px rgba(255,255,255,0.4)",
-											}}
-										/>
-										<div
-											style={{
-												width: 12,
-												height: 12,
-												borderRadius: "50%",
-												background:
-													"linear-gradient(180deg, #ffbe2f 0%, #e6a620 100%)",
-												boxShadow:
-													"inset 0 0 0 0.5px rgba(0,0,0,0.12), inset 0 -0.5px 0.5px rgba(0,0,0,0.1), 0 0.5px 0.5px rgba(255,255,255,0.4)",
-											}}
-										/>
-										<div
-											style={{
-												width: 12,
-												height: 12,
-												borderRadius: "50%",
-												background:
-													"linear-gradient(180deg, #2aca44 0%, #1db934 100%)",
-												boxShadow:
-													"inset 0 0 0 0.5px rgba(0,0,0,0.12), inset 0 -0.5px 0.5px rgba(0,0,0,0.1), 0 0.5px 0.5px rgba(255,255,255,0.4)",
-											}}
-										/>
+									<div style={windowChromeStyle}>
+										<div style={windowButtonRed} />
+										<div style={windowButtonYellow} />
+										<div style={windowButtonGreen} />
 									</div>
 								)}
 								<img
 									src={image}
 									alt="Screenshot"
 									style={{ display: "block" }}
+									loading="lazy"
+									decoding="async"
 								/>
 							</div>
 						</div>
