@@ -23,6 +23,7 @@ import {
 	removeSilence,
 	type SilenceMode,
 } from "@/lib/ffmpeg-utils";
+import { getFileBaseName } from "@/lib/utils";
 
 const modes: { value: SilenceMode; label: string; desc: string }[] = [
 	{
@@ -100,7 +101,7 @@ export default function RemoveSilencePage() {
 					(p) => setProgress(p),
 				);
 
-				const baseName = fileToProcess.name.split(".").slice(0, -1).join(".");
+				const baseName = getFileBaseName(fileToProcess.name);
 				setResult(blob, `${baseName}_trimmed.wav`);
 				setUsedMode(silenceMode);
 			} catch (err) {

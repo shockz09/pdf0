@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { AudioPlayer } from "@/components/audio/AudioPlayer";
 import { AudioPageHeader, ErrorBox } from "@/components/audio/shared";
 import { DownloadIcon, MicIcon, StopIcon } from "@/components/icons";
+import { useObjectURL } from "@/hooks";
 import {
 	downloadAudio,
 	formatDuration,
@@ -14,21 +15,16 @@ export default function RecordAudioPage() {
 	const [isRecording, setIsRecording] = useState(false);
 	const [recordingTime, setRecordingTime] = useState(0);
 	const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
-	const [audioUrl, setAudioUrl] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
+
+	// Use custom hooks
+	const { url: audioUrl, setSource: setAudioSource, revoke: revokeAudio } = useObjectURL();
 
 	const mediaRecorderRef = useRef<MediaRecorder | null>(null);
 	const chunksRef = useRef<Blob[]>([]);
 	const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-	useEffect(() => {
-		return () => {
-			if (audioUrl) URL.revokeObjectURL(audioUrl);
-			if (timerRef.current) clearInterval(timerRef.current);
-		};
-	}, [audioUrl]);
-
-	const startRecording = async () => {
+	const startRecording = useCallback(async () => {
 		try {
 			const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 			const mediaRecorder = new MediaRecorder(stream);
@@ -42,8 +38,7 @@ export default function RecordAudioPage() {
 			mediaRecorder.onstop = () => {
 				const blob = new Blob(chunksRef.current, { type: "audio/wav" });
 				setAudioBlob(blob);
-				if (audioUrl) URL.revokeObjectURL(audioUrl);
-				setAudioUrl(URL.createObjectURL(blob));
+				setAudioSource(blob);
 				stream.getTracks().forEach((track) => track.stop());
 			};
 
@@ -55,13 +50,11 @@ export default function RecordAudioPage() {
 				setRecordingTime((t) => t + 1);
 			}, 1000);
 		} catch {
-			setError(
-				"Failed to access microphone. Please allow microphone permissions.",
-			);
+			setError("Failed to access microphone. Please allow microphone permissions.");
 		}
-	};
+	}, [setAudioSource]);
 
-	const stopRecording = () => {
+	const stopRecording = useCallback(() => {
 		if (mediaRecorderRef.current && isRecording) {
 			mediaRecorderRef.current.stop();
 			setIsRecording(false);
@@ -70,22 +63,21 @@ export default function RecordAudioPage() {
 				timerRef.current = null;
 			}
 		}
-	};
+	}, [isRecording]);
 
-	const handleDownload = () => {
+	const handleDownload = useCallback(() => {
 		if (audioBlob) {
 			const filename = `recording_${new Date().toISOString().slice(0, 19).replace(/[:-]/g, "")}.wav`;
 			downloadAudio(audioBlob, filename);
 		}
-	};
+	}, [audioBlob]);
 
-	const handleStartOver = () => {
-		if (audioUrl) URL.revokeObjectURL(audioUrl);
+	const handleStartOver = useCallback(() => {
+		revokeAudio();
 		setAudioBlob(null);
-		setAudioUrl(null);
 		setRecordingTime(0);
 		setError(null);
-	};
+	}, [revokeAudio]);
 
 	return (
 		<div className="page-enter max-w-2xl mx-auto space-y-8">
@@ -101,12 +93,7 @@ export default function RecordAudioPage() {
 					<div className="success-card">
 						<div className="success-stamp">
 							<span className="success-stamp-text">Recorded</span>
-							<svg
-								aria-hidden="true"
-								viewBox="0 0 24 24"
-								fill="none"
-								stroke="currentColor"
-							>
+							<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor">
 								<polyline points="20 6 9 17 4 12" />
 							</svg>
 						</div>
@@ -114,8 +101,7 @@ export default function RecordAudioPage() {
 						<div className="space-y-4 mb-6">
 							<h2 className="text-3xl font-display">Recording Complete!</h2>
 							<p className="text-muted-foreground">
-								Duration: {formatDuration(recordingTime)} •{" "}
-								{formatFileSize(audioBlob.size)}
+								Duration: {formatDuration(recordingTime)} • {formatFileSize(audioBlob.size)}
 							</p>
 						</div>
 
@@ -125,21 +111,13 @@ export default function RecordAudioPage() {
 							</div>
 						)}
 
-						<button
-							type="button"
-							onClick={handleDownload}
-							className="btn-success w-full mb-4"
-						>
+						<button type="button" onClick={handleDownload} className="btn-success w-full mb-4">
 							<DownloadIcon className="w-5 h-5" />
 							Download Recording
 						</button>
 					</div>
 
-					<button
-						type="button"
-						onClick={handleStartOver}
-						className="btn-secondary w-full"
-					>
+					<button type="button" onClick={handleStartOver} className="btn-secondary w-full">
 						Record Again
 					</button>
 				</div>
@@ -152,9 +130,7 @@ export default function RecordAudioPage() {
 								<div className="w-20 h-20 mx-auto mb-4 rounded-full bg-destructive/20 flex items-center justify-center animate-pulse">
 									<div className="w-12 h-12 rounded-full bg-destructive" />
 								</div>
-								<p className="text-4xl font-mono font-bold mb-2">
-									{formatDuration(recordingTime)}
-								</p>
+								<p className="text-4xl font-mono font-bold mb-2">{formatDuration(recordingTime)}</p>
 								<p className="text-muted-foreground">Recording...</p>
 							</>
 						) : (
@@ -162,9 +138,7 @@ export default function RecordAudioPage() {
 								<div className="w-20 h-20 mx-auto mb-4 border-2 border-foreground rounded-full flex items-center justify-center">
 									<MicIcon className="w-10 h-10" />
 								</div>
-								<p className="text-muted-foreground">
-									Click the button below to start recording
-								</p>
+								<p className="text-muted-foreground">Click the button below to start recording</p>
 							</>
 						)}
 					</div>
@@ -181,11 +155,7 @@ export default function RecordAudioPage() {
 							Stop Recording
 						</button>
 					) : (
-						<button
-							type="button"
-							onClick={startRecording}
-							className="btn-primary w-full"
-						>
+						<button type="button" onClick={startRecording} className="btn-primary w-full">
 							<MicIcon className="w-5 h-5" />
 							Start Recording
 						</button>
@@ -207,8 +177,7 @@ export default function RecordAudioPage() {
 						<div className="text-sm">
 							<p className="font-bold text-foreground mb-1">Tip</p>
 							<p className="text-muted-foreground">
-								Make sure to allow microphone access when prompted. Recording is
-								saved as WAV format.
+								Make sure to allow microphone access when prompted. Recording is saved as WAV format.
 							</p>
 						</div>
 					</div>

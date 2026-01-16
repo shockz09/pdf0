@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AudioPageHeader, ErrorBox } from "@/components/audio/shared";
 import {
 	AudioIcon,
@@ -9,6 +9,7 @@ import {
 	WaveformIcon,
 } from "@/components/icons";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
+import { useFileProcessing } from "@/hooks";
 import {
 	formatDuration,
 	formatFileSize,
@@ -16,6 +17,7 @@ import {
 	getAudioInfo,
 	getWaveformData,
 } from "@/lib/audio-utils";
+import { getFileBaseName } from "@/lib/utils";
 
 // Waveform color presets
 const waveformColors = [
@@ -61,13 +63,14 @@ export default function WaveformPage() {
 	const [file, setFile] = useState<File | null>(null);
 	const [duration, setDuration] = useState(0);
 	const [waveformData, setWaveformData] = useState<number[]>([]);
-	const [waveformColor, setWaveformColor] = useState(waveformColors[1].color); // Crimson
-	const [bgColor, setBgColor] = useState(backgroundColors[11].color); // Black
+	const [waveformColor, setWaveformColor] = useState(waveformColors[1].color);
+	const [bgColor, setBgColor] = useState(backgroundColors[11].color);
 	const [exportSize, setExportSize] = useState(exportSizes[0]);
-	const [isProcessing, setIsProcessing] = useState(false);
 	const [isLoadingPreview, setIsLoadingPreview] = useState(false);
-	const [error, setError] = useState<string | null>(null);
 	const canvasRef = useRef<HTMLCanvasElement>(null);
+
+	// Use custom hooks
+	const { isProcessing, error, startProcessing, stopProcessing, setError } = useFileProcessing();
 
 	// Draw waveform to canvas
 	const drawWaveform = useCallback(() => {
@@ -91,12 +94,7 @@ export default function WaveformPage() {
 		for (let i = 0; i < waveformData.length; i++) {
 			const barHeight = waveformData[i] * maxHeight;
 			const x = i * barWidth;
-			ctx.fillRect(
-				x,
-				centerY - barHeight / 2,
-				Math.max(1, barWidth - 1),
-				barHeight,
-			);
+			ctx.fillRect(x, centerY - barHeight / 2, Math.max(1, barWidth - 1), barHeight);
 		}
 	}, [waveformData, waveformColor, bgColor]);
 
@@ -109,7 +107,6 @@ export default function WaveformPage() {
 		if (files.length > 0) {
 			const selectedFile = files[0];
 			setFile(selectedFile);
-			setError(null);
 			setIsLoadingPreview(true);
 
 			try {
@@ -125,12 +122,11 @@ export default function WaveformPage() {
 				setIsLoadingPreview(false);
 			}
 		}
-	}, []);
+	}, [setError]);
 
-	const handleExport = async () => {
+	const handleExport = useCallback(async () => {
 		if (!file) return;
-		setIsProcessing(true);
-		setError(null);
+		if (!startProcessing()) return;
 
 		try {
 			const blob = await generateWaveformImage(
@@ -141,7 +137,7 @@ export default function WaveformPage() {
 				bgColor,
 			);
 
-			const baseName = file.name.split(".").slice(0, -1).join(".");
+			const baseName = getFileBaseName(file.name);
 			const url = URL.createObjectURL(blob);
 			const a = document.createElement("a");
 			a.href = url;
@@ -149,19 +145,25 @@ export default function WaveformPage() {
 			a.click();
 			URL.revokeObjectURL(url);
 		} catch (err) {
-			setError(
-				err instanceof Error ? err.message : "Failed to generate waveform",
-			);
+			setError(err instanceof Error ? err.message : "Failed to generate waveform");
 		} finally {
-			setIsProcessing(false);
+			stopProcessing();
 		}
-	};
+	}, [file, exportSize, waveformColor, bgColor, startProcessing, setError, stopProcessing]);
 
-	const handleStartOver = () => {
+	const handleStartOver = useCallback(() => {
 		setFile(null);
 		setWaveformData([]);
-		setError(null);
-	};
+	}, []);
+
+	const handleWaveformColorSelect = useCallback((color: string) => setWaveformColor(color), []);
+	const handleBgColorSelect = useCallback((color: string) => setBgColor(color), []);
+	const handleExportSizeSelect = useCallback((size: typeof exportSizes[0]) => setExportSize(size), []);
+
+	const isExportDisabled = useMemo(() =>
+		isProcessing || waveformData.length === 0,
+		[isProcessing, waveformData.length]
+	);
 
 	return (
 		<div className="page-enter max-w-2xl mx-auto space-y-8">
@@ -208,12 +210,7 @@ export default function WaveformPage() {
 								<span className="text-sm">Loading...</span>
 							</div>
 						) : (
-							<canvas
-								ref={canvasRef}
-								width={600}
-								height={80}
-								className="w-full h-auto"
-							/>
+							<canvas ref={canvasRef} width={600} height={80} className="w-full h-auto" />
 						)}
 					</div>
 
@@ -223,15 +220,13 @@ export default function WaveformPage() {
 						<div className="grid grid-cols-2 gap-4">
 							{/* Waveform Color */}
 							<div className="space-y-2">
-								<span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
-									Wave
-								</span>
+								<span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Wave</span>
 								<div className="flex flex-wrap gap-1">
 									{waveformColors.map((preset) => (
 										<button
 											type="button"
 											key={preset.name}
-											onClick={() => setWaveformColor(preset.color)}
+											onClick={() => handleWaveformColorSelect(preset.color)}
 											className={`w-6 h-6 border-2 transition-all ${
 												waveformColor === preset.color
 													? "border-foreground ring-2 ring-offset-1 ring-foreground"
@@ -246,15 +241,13 @@ export default function WaveformPage() {
 
 							{/* Background Color */}
 							<div className="space-y-2">
-								<span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
-									Background
-								</span>
+								<span className="text-xs font-bold uppercase tracking-wide text-muted-foreground">Background</span>
 								<div className="flex flex-wrap gap-1">
 									{backgroundColors.map((preset) => (
 										<button
 											type="button"
 											key={preset.name}
-											onClick={() => setBgColor(preset.color)}
+											onClick={() => handleBgColorSelect(preset.color)}
 											className={`w-6 h-6 border transition-all ${
 												bgColor === preset.color
 													? "border-foreground ring-2 ring-offset-1 ring-foreground"
@@ -270,15 +263,13 @@ export default function WaveformPage() {
 
 						{/* Export Size - Inline */}
 						<div className="flex items-center gap-2 pt-2 border-t border-foreground/10">
-							<span className="text-xs font-bold uppercase tracking-wide text-muted-foreground shrink-0">
-								Size
-							</span>
+							<span className="text-xs font-bold uppercase tracking-wide text-muted-foreground shrink-0">Size</span>
 							<div className="flex gap-1 flex-1">
 								{exportSizes.map((size) => (
 									<button
 										type="button"
 										key={size.name}
-										onClick={() => setExportSize(size)}
+										onClick={() => handleExportSizeSelect(size)}
 										className={`px-2 py-1 text-xs font-bold border-2 transition-all ${
 											exportSize.name === size.name
 												? "border-foreground bg-foreground text-background"
@@ -298,19 +289,13 @@ export default function WaveformPage() {
 					<button
 						type="button"
 						onClick={handleExport}
-						disabled={isProcessing || waveformData.length === 0}
+						disabled={isExportDisabled}
 						className="btn-primary w-full"
 					>
 						{isProcessing ? (
-							<>
-								<LoaderIcon className="w-5 h-5" />
-								Exporting...
-							</>
+							<><LoaderIcon className="w-5 h-5" />Exporting...</>
 						) : (
-							<>
-								<DownloadIcon className="w-5 h-5" />
-								Export PNG
-							</>
+							<><DownloadIcon className="w-5 h-5" />Export PNG</>
 						)}
 					</button>
 				</div>

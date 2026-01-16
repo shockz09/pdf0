@@ -26,6 +26,7 @@ import {
 	convertAudioFFmpeg,
 	isFFmpegLoaded,
 } from "@/lib/ffmpeg-utils";
+import { getFileBaseName } from "@/lib/utils";
 
 type OutputFormat = "mp3" | "wav" | "ogg" | "flac" | "aac" | "webm";
 
@@ -121,7 +122,7 @@ export default function AudioConvertPage() {
 				});
 			}
 
-			const baseName = file.name.split(".").slice(0, -1).join(".");
+			const baseName = getFileBaseName(file.name);
 			setResult(blob, `${baseName}.${outputFormat}`);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Conversion failed");

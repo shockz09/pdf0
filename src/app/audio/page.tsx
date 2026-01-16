@@ -8,6 +8,7 @@ import {
 	ExtractIcon,
 	FadeIcon,
 	MicIcon,
+	MusicTagIcon,
 	NormalizeIcon,
 	ReverseIcon,
 	SilenceIcon,
@@ -121,6 +122,14 @@ const tools = [
 		icon: ReverseIcon,
 		category: "effects",
 		colorClass: "tool-audio-reverse",
+	},
+	{
+		title: "Edit Metadata",
+		description: "Edit ID3 tags for MP3 files",
+		href: "/audio/metadata",
+		icon: MusicTagIcon,
+		category: "edit",
+		colorClass: "tool-audio-metadata",
 	},
 ];
 

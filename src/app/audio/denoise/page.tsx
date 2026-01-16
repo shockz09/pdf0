@@ -23,6 +23,7 @@ import {
 	denoiseAudio,
 	isFFmpegLoaded,
 } from "@/lib/ffmpeg-utils";
+import { getFileBaseName } from "@/lib/utils";
 
 const strengthOptions: {
 	value: DenoiseStrength;
@@ -74,7 +75,7 @@ export default function DenoiseAudioPage() {
 					setProgress(p),
 				);
 
-				const baseName = fileToProcess.name.split(".").slice(0, -1).join(".");
+				const baseName = getFileBaseName(fileToProcess.name);
 				setResult(blob, `${baseName}_denoised.wav`);
 				setUsedStrength(denoiseStrength);
 			} catch (err) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { AudioPlayer } from "@/components/audio/AudioPlayer";
 import {
 	AudioFileInfo,
@@ -12,7 +12,7 @@ import {
 import { LoaderIcon, ReverseIcon } from "@/components/icons";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import { useInstantMode } from "@/components/shared/InstantModeToggle";
-import { useAudioResult, useVideoToAudio } from "@/hooks";
+import { useAudioResult, useFileProcessing, useObjectURL, useVideoToAudio } from "@/hooks";
 import {
 	formatDuration,
 	formatFileSize,
@@ -20,14 +20,16 @@ import {
 	reverseAudio,
 } from "@/lib/audio-utils";
 import { AUDIO_VIDEO_EXTENSIONS } from "@/lib/constants";
+import { getFileBaseName } from "@/lib/utils";
 
 export default function ReverseAudioPage() {
 	const { isInstant, isLoaded } = useInstantMode();
 	const [file, setFile] = useState<File | null>(null);
-	const [audioUrl, setAudioUrl] = useState<string | null>(null);
 	const [duration, setDuration] = useState(0);
-	const [isProcessing, setIsProcessing] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+
+	// Use custom hooks
+	const { url: audioUrl, setSource: setAudioSource, revoke: revokeAudio } = useObjectURL();
+	const { isProcessing, error, startProcessing, stopProcessing, setError } = useFileProcessing();
 	const { result, setResult, clearResult, download } = useAudioResult();
 	const {
 		processFileSelection,
@@ -36,37 +38,24 @@ export default function ReverseAudioPage() {
 		isExtracting,
 		videoFilename,
 	} = useVideoToAudio();
-	const processingRef = useRef(false);
-
-	useEffect(() => {
-		return () => {
-			if (audioUrl) URL.revokeObjectURL(audioUrl);
-		};
-	}, [audioUrl]);
 
 	const processFile = useCallback(
 		async (fileToProcess: File) => {
-			if (processingRef.current) return;
-			processingRef.current = true;
-			setIsProcessing(true);
-			setError(null);
+			if (!startProcessing()) return;
 
 			try {
 				const info = await getAudioInfo(fileToProcess);
 				setDuration(info.duration);
 				const processed = await reverseAudio(fileToProcess);
-				const baseName = fileToProcess.name.split(".").slice(0, -1).join(".");
+				const baseName = getFileBaseName(fileToProcess.name);
 				setResult(processed, `${baseName}_reversed.wav`);
 			} catch (err) {
-				setError(
-					err instanceof Error ? err.message : "Failed to reverse audio",
-				);
+				setError(err instanceof Error ? err.message : "Failed to reverse audio");
 			} finally {
-				setIsProcessing(false);
-				processingRef.current = false;
+				stopProcessing();
 			}
 		},
-		[setResult],
+		[startProcessing, setResult, setError, stopProcessing],
 	);
 
 	const handleAudioReady = useCallback(
@@ -74,12 +63,8 @@ export default function ReverseAudioPage() {
 			if (files.length > 0) {
 				const selectedFile = files[0];
 				setFile(selectedFile);
-				setError(null);
 				clearResult();
-
-				const url = URL.createObjectURL(selectedFile);
-				if (audioUrl) URL.revokeObjectURL(audioUrl);
-				setAudioUrl(url);
+				setAudioSource(selectedFile);
 
 				try {
 					const info = await getAudioInfo(selectedFile);
@@ -93,7 +78,7 @@ export default function ReverseAudioPage() {
 				}
 			}
 		},
-		[isInstant, processFile, audioUrl, clearResult],
+		[isInstant, processFile, clearResult, setAudioSource],
 	);
 
 	const handleFileSelected = useCallback(
@@ -103,30 +88,16 @@ export default function ReverseAudioPage() {
 		[processFileSelection, handleAudioReady],
 	);
 
-	useEffect(() => {
-		const handlePaste = (e: ClipboardEvent) => {
-			const items = e.clipboardData?.items;
-			if (!items) return;
-			for (const item of items) {
-				if (item.type.startsWith("audio/")) {
-					const f = item.getAsFile();
-					if (f) handleFileSelected([f]);
-					break;
-				}
-			}
-		};
-		window.addEventListener("paste", handlePaste);
-		return () => window.removeEventListener("paste", handlePaste);
-	}, [handleFileSelected]);
-
-	const handleClear = () => {
-		if (audioUrl) URL.revokeObjectURL(audioUrl);
+	const handleClear = useCallback(() => {
+		revokeAudio();
 		clearResult();
 		setFile(null);
-		setAudioUrl(null);
-		setError(null);
 		setDuration(0);
-	};
+	}, [revokeAudio, clearResult]);
+
+	const handleProcess = useCallback(() => {
+		if (file) processFile(file);
+	}, [file, processFile]);
 
 	if (!isLoaded) return null;
 
@@ -157,20 +128,14 @@ export default function ReverseAudioPage() {
 						<LoaderIcon className="w-8 h-8 animate-spin" />
 						<div className="text-center w-full min-w-0">
 							<p className="font-bold">Reversing audio...</p>
-							<p className="text-sm text-muted-foreground truncate">
-								{file?.name}
-							</p>
+							<p className="text-sm text-muted-foreground truncate">{file?.name}</p>
 						</div>
 					</div>
 				</div>
 			) : error ? (
 				<div className="space-y-4">
 					<ErrorBox message={error} />
-					<button
-						type="button"
-						onClick={handleClear}
-						className="btn-secondary w-full"
-					>
+					<button type="button" onClick={handleClear} className="btn-secondary w-full">
 						Try Again
 					</button>
 				</div>
@@ -205,15 +170,11 @@ export default function ReverseAudioPage() {
 				</div>
 			) : (
 				<div className="space-y-6">
-					<AudioFileInfo
-						file={file}
-						duration={duration}
-						onClear={handleClear}
-					/>
+					<AudioFileInfo file={file} duration={duration} onClear={handleClear} />
 					{audioUrl && <AudioPlayer src={audioUrl} />}
 					<button
 						type="button"
-						onClick={() => processFile(file)}
+						onClick={handleProcess}
 						disabled={isProcessing}
 						className="btn-primary w-full"
 					>

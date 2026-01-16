@@ -23,6 +23,7 @@ import {
 	type NormalizePreset,
 	normalizeAudio,
 } from "@/lib/ffmpeg-utils";
+import { getFileBaseName } from "@/lib/utils";
 
 const presets: {
 	value: NormalizePreset;
@@ -96,7 +97,7 @@ export default function NormalizeAudioPage() {
 					setProgress(p),
 				);
 
-				const baseName = fileToProcess.name.split(".").slice(0, -1).join(".");
+				const baseName = getFileBaseName(fileToProcess.name);
 				setResult(blob, `${baseName}_normalized.wav`);
 				setUsedPreset(targetPreset);
 			} catch (err) {

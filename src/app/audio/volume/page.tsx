@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { AudioPlayer } from "@/components/audio/AudioPlayer";
 import {
 	AudioFileInfo,
@@ -12,18 +12,20 @@ import {
 } from "@/components/audio/shared";
 import { VolumeIcon } from "@/components/icons";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
-import { useAudioResult, useVideoToAudio } from "@/hooks";
+import { useAudioResult, useFileProcessing, useObjectURL, useVideoToAudio } from "@/hooks";
 import { adjustVolume, formatFileSize, getAudioInfo } from "@/lib/audio-utils";
 import { AUDIO_VIDEO_EXTENSIONS } from "@/lib/constants";
+import { getFileBaseName } from "@/lib/utils";
 
 export default function VolumeAudioPage() {
 	const [file, setFile] = useState<File | null>(null);
-	const [audioUrl, setAudioUrl] = useState<string | null>(null);
 	const [duration, setDuration] = useState(0);
 	const [volume, setVolume] = useState(100);
 	const [usedVolume, setUsedVolume] = useState(100);
-	const [isProcessing, setIsProcessing] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+
+	// Use custom hooks
+	const { url: audioUrl, setSource: setAudioSource, revoke: revokeAudio } = useObjectURL();
+	const { isProcessing, error, startProcessing, stopProcessing, setError } = useFileProcessing();
 	const { result, setResult, clearResult, download } = useAudioResult();
 	const {
 		processFileSelection,
@@ -33,32 +35,23 @@ export default function VolumeAudioPage() {
 		videoFilename,
 	} = useVideoToAudio();
 
-	useEffect(() => {
-		return () => {
-			if (audioUrl) URL.revokeObjectURL(audioUrl);
-		};
-	}, [audioUrl]);
-
 	const handleAudioReady = useCallback(
 		async (files: File[]) => {
 			if (files.length > 0) {
 				const selectedFile = files[0];
 				setFile(selectedFile);
-				setError(null);
 				clearResult();
 
 				try {
 					const info = await getAudioInfo(selectedFile);
 					setDuration(info.duration);
-					const url = URL.createObjectURL(selectedFile);
-					if (audioUrl) URL.revokeObjectURL(audioUrl);
-					setAudioUrl(url);
+					setAudioSource(selectedFile);
 				} catch {
 					setError("Failed to load audio file.");
 				}
 			}
 		},
-		[audioUrl, clearResult],
+		[clearResult, setAudioSource, setError],
 	);
 
 	const handleFileSelected = useCallback(
@@ -68,31 +61,34 @@ export default function VolumeAudioPage() {
 		[processFileSelection, handleAudioReady],
 	);
 
-	const handleProcess = async () => {
+	const handleProcess = useCallback(async () => {
 		if (!file) return;
-		setIsProcessing(true);
-		setError(null);
+		if (!startProcessing()) return;
 
 		try {
 			const processed = await adjustVolume(file, volume / 100);
-			const baseName = file.name.split(".").slice(0, -1).join(".");
+			const baseName = getFileBaseName(file.name);
 			setResult(processed, `${baseName}_volume.wav`);
 			setUsedVolume(volume);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Failed to adjust volume");
 		} finally {
-			setIsProcessing(false);
+			stopProcessing();
 		}
-	};
+	}, [file, volume, startProcessing, setResult, setError, stopProcessing]);
 
-	const handleStartOver = () => {
-		if (audioUrl) URL.revokeObjectURL(audioUrl);
+	const handleStartOver = useCallback(() => {
+		revokeAudio();
 		clearResult();
 		setFile(null);
-		setAudioUrl(null);
-		setError(null);
 		setVolume(100);
-	};
+	}, [revokeAudio, clearResult]);
+
+	const handleVolumeChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+		setVolume(Number(e.target.value));
+	}, []);
+
+	const isDisabled = useMemo(() => volume === 100, [volume]);
 
 	return (
 		<div className="page-enter max-w-2xl mx-auto space-y-8">
@@ -131,11 +127,7 @@ export default function VolumeAudioPage() {
 				/>
 			) : (
 				<div className="space-y-6">
-					<AudioFileInfo
-						file={file}
-						duration={duration}
-						onClear={handleStartOver}
-					/>
+					<AudioFileInfo file={file} duration={duration} onClear={handleStartOver} />
 
 					{audioUrl && <AudioPlayer src={audioUrl} />}
 
@@ -149,7 +141,7 @@ export default function VolumeAudioPage() {
 							min="0"
 							max="300"
 							value={volume}
-							onChange={(e) => setVolume(Number(e.target.value))}
+							onChange={handleVolumeChange}
 							className="w-full h-2 bg-muted border-2 border-foreground appearance-none cursor-pointer"
 						/>
 						<div className="flex justify-between text-xs text-muted-foreground">
@@ -163,6 +155,7 @@ export default function VolumeAudioPage() {
 
 					<ProcessButton
 						onClick={handleProcess}
+						disabled={isDisabled}
 						isProcessing={isProcessing}
 						processingLabel="Processing..."
 						icon={<VolumeIcon className="w-5 h-5" />}

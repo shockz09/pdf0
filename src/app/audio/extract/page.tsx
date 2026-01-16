@@ -18,7 +18,7 @@ import {
 } from "@/components/icons";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
 import { useInstantMode } from "@/components/shared/InstantModeToggle";
-import { useAudioResult } from "@/hooks/useAudioResult";
+import { useAudioResult } from "@/hooks";
 import { formatFileSize } from "@/lib/audio-utils";
 import { AUDIO_BITRATES } from "@/lib/constants";
 import {
@@ -26,6 +26,7 @@ import {
 	extractAudioFromVideo,
 	isFFmpegLoaded,
 } from "@/lib/ffmpeg-utils";
+import { getFileBaseName } from "@/lib/utils";
 
 const outputFormats: {
 	value: ExtractOutputFormat;
@@ -71,7 +72,7 @@ export default function ExtractAudioPage() {
 					br,
 					(p) => setProgress(p),
 				);
-				const baseName = fileToProcess.name.split(".").slice(0, -1).join(".");
+				const baseName = getFileBaseName(fileToProcess.name);
 				setResult(blob, `${baseName}.${format}`);
 			} catch (err) {
 				setError(

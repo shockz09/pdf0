@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { AudioPlayer } from "@/components/audio/AudioPlayer";
 import {
 	AudioFileInfo,
@@ -12,7 +12,7 @@ import {
 } from "@/components/audio/shared";
 import { SpeedIcon } from "@/components/icons";
 import { FileDropzone } from "@/components/pdf/file-dropzone";
-import { useAudioResult, useVideoToAudio } from "@/hooks";
+import { useAudioResult, useFileProcessing, useObjectURL, useVideoToAudio } from "@/hooks";
 import {
 	changeSpeed,
 	formatDuration,
@@ -20,17 +20,19 @@ import {
 	getAudioInfo,
 } from "@/lib/audio-utils";
 import { AUDIO_VIDEO_EXTENSIONS } from "@/lib/constants";
+import { getFileBaseName } from "@/lib/utils";
 
 const speedPresets = [0.5, 0.75, 1, 1.25, 1.5, 2];
 
 export default function SpeedAudioPage() {
 	const [file, setFile] = useState<File | null>(null);
-	const [audioUrl, setAudioUrl] = useState<string | null>(null);
 	const [duration, setDuration] = useState(0);
 	const [speed, setSpeed] = useState(1);
 	const [usedSpeed, setUsedSpeed] = useState(1);
-	const [isProcessing, setIsProcessing] = useState(false);
-	const [error, setError] = useState<string | null>(null);
+
+	// Use custom hooks
+	const { url: audioUrl, setSource: setAudioSource, revoke: revokeAudio } = useObjectURL();
+	const { isProcessing, error, startProcessing, stopProcessing, setError } = useFileProcessing();
 	const { result, setResult, clearResult, download } = useAudioResult();
 	const {
 		processFileSelection,
@@ -40,32 +42,23 @@ export default function SpeedAudioPage() {
 		videoFilename,
 	} = useVideoToAudio();
 
-	useEffect(() => {
-		return () => {
-			if (audioUrl) URL.revokeObjectURL(audioUrl);
-		};
-	}, [audioUrl]);
-
 	const handleAudioReady = useCallback(
 		async (files: File[]) => {
 			if (files.length > 0) {
 				const selectedFile = files[0];
 				setFile(selectedFile);
-				setError(null);
 				clearResult();
 
 				try {
 					const info = await getAudioInfo(selectedFile);
 					setDuration(info.duration);
-					const url = URL.createObjectURL(selectedFile);
-					if (audioUrl) URL.revokeObjectURL(audioUrl);
-					setAudioUrl(url);
+					setAudioSource(selectedFile);
 				} catch {
 					setError("Failed to load audio file.");
 				}
 			}
 		},
-		[audioUrl, clearResult],
+		[clearResult, setAudioSource, setError],
 	);
 
 	const handleFileSelected = useCallback(
@@ -75,33 +68,33 @@ export default function SpeedAudioPage() {
 		[processFileSelection, handleAudioReady],
 	);
 
-	const handleProcess = async () => {
+	const handleProcess = useCallback(async () => {
 		if (!file) return;
-		setIsProcessing(true);
-		setError(null);
+		if (!startProcessing()) return;
 
 		try {
 			const processed = await changeSpeed(file, speed);
-			const baseName = file.name.split(".").slice(0, -1).join(".");
+			const baseName = getFileBaseName(file.name);
 			setResult(processed, `${baseName}_${speed}x.wav`);
 			setUsedSpeed(speed);
 		} catch (err) {
 			setError(err instanceof Error ? err.message : "Failed to change speed");
 		} finally {
-			setIsProcessing(false);
+			stopProcessing();
 		}
-	};
+	}, [file, speed, startProcessing, setResult, setError, stopProcessing]);
 
-	const handleStartOver = () => {
-		if (audioUrl) URL.revokeObjectURL(audioUrl);
+	const handleStartOver = useCallback(() => {
+		revokeAudio();
 		clearResult();
 		setFile(null);
-		setAudioUrl(null);
-		setError(null);
 		setSpeed(1);
-	};
+	}, [revokeAudio, clearResult]);
 
-	const newDuration = duration / speed;
+	const handleSpeedSelect = useCallback((s: number) => setSpeed(s), []);
+
+	const newDuration = useMemo(() => duration / speed, [duration, speed]);
+	const isDisabled = useMemo(() => speed === 1, [speed]);
 
 	return (
 		<div className="page-enter max-w-2xl mx-auto space-y-8">
@@ -140,11 +133,7 @@ export default function SpeedAudioPage() {
 				/>
 			) : (
 				<div className="space-y-6">
-					<AudioFileInfo
-						file={file}
-						duration={duration}
-						onClear={handleStartOver}
-					/>
+					<AudioFileInfo file={file} duration={duration} onClear={handleStartOver} />
 
 					{audioUrl && <AudioPlayer src={audioUrl} />}
 
@@ -155,11 +144,9 @@ export default function SpeedAudioPage() {
 								<button
 									type="button"
 									key={s}
-									onClick={() => setSpeed(s)}
+									onClick={() => handleSpeedSelect(s)}
 									className={`px-2 sm:px-3 py-2 text-sm font-bold border-2 border-foreground transition-colors ${
-										speed === s
-											? "bg-foreground text-background"
-											: "hover:bg-muted"
+										speed === s ? "bg-foreground text-background" : "hover:bg-muted"
 									}`}
 								>
 									{s}x
@@ -183,7 +170,7 @@ export default function SpeedAudioPage() {
 
 					<ProcessButton
 						onClick={handleProcess}
-						disabled={speed === 1}
+						disabled={isDisabled}
 						isProcessing={isProcessing}
 						processingLabel="Processing..."
 						icon={<SpeedIcon className="w-5 h-5" />}
