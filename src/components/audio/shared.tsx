@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { AudioIcon, InfoIcon, LoaderIcon, VideoIcon } from "@/components/icons";
 import {
 	ProgressBar as BaseProgressBar,
@@ -14,7 +14,7 @@ import { formatDuration, formatFileSize } from "@/lib/audio-utils";
 export { ErrorBox, ProcessButton, SuccessCard } from "@/components/shared";
 
 // ============ FFmpeg Notice (audio-specific) ============
-export function FFmpegNotice() {
+export const FFmpegNotice = memo(function FFmpegNotice() {
 	return (
 		<div className="flex items-start gap-3 p-3 border-2 border-foreground/30 bg-muted/30 text-sm">
 			<InfoIcon className="w-5 h-5 shrink-0 mt-0.5" />
@@ -24,7 +24,7 @@ export function FFmpegNotice() {
 			</p>
 		</div>
 	);
-}
+});
 
 // ============ Audio Progress Bar (converts 0-1 to 0-100) ============
 interface ProgressBarProps {
@@ -32,9 +32,12 @@ interface ProgressBarProps {
 	label: string;
 }
 
-export function ProgressBar({ progress, label }: ProgressBarProps) {
+export const ProgressBar = memo(function ProgressBar({
+	progress,
+	label,
+}: ProgressBarProps) {
 	return <BaseProgressBar progress={progress * 100} label={label} />;
-}
+});
 
 // ============ Audio Page Header (wrapper) ============
 interface AudioPageHeaderProps {
@@ -44,7 +47,7 @@ interface AudioPageHeaderProps {
 	description: string;
 }
 
-export function AudioPageHeader({
+export const AudioPageHeader = memo(function AudioPageHeader({
 	icon,
 	iconClass,
 	title,
@@ -60,7 +63,7 @@ export function AudioPageHeader({
 			backLabel="Back to Audio Tools"
 		/>
 	);
-}
+});
 
 // ============ Audio File Info (with duration support) ============
 interface AudioFileInfoProps {
@@ -70,7 +73,7 @@ interface AudioFileInfoProps {
 	icon?: ReactNode;
 }
 
-export function AudioFileInfo({
+export const AudioFileInfo = memo(function AudioFileInfo({
 	file,
 	duration,
 	onClear,
@@ -89,7 +92,7 @@ export function AudioFileInfo({
 			icon={icon || <AudioIcon className="w-5 h-5 shrink-0" />}
 		/>
 	);
-}
+});
 
 // ============ Video Extraction Progress ============
 interface VideoExtractionProgressProps {
@@ -98,7 +101,7 @@ interface VideoExtractionProgressProps {
 	filename?: string | null;
 }
 
-export function VideoExtractionProgress({
+export const VideoExtractionProgress = memo(function VideoExtractionProgress({
 	state,
 	progress,
 	filename,
@@ -135,4 +138,4 @@ export function VideoExtractionProgress({
 			)}
 		</div>
 	);
-}
+});

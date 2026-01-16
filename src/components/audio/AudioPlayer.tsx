@@ -1,7 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { getWaveformDataFromUrl } from "@/lib/audio-utils";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { formatDuration, getWaveformDataFromUrl } from "@/lib/audio-utils";
 
 interface AudioPlayerProps {
 	src: string;
@@ -9,8 +9,9 @@ interface AudioPlayerProps {
 }
 
 const WAVEFORM_BARS = 80;
+const WAVEFORM_INDICES = Array.from({ length: WAVEFORM_BARS }, (_, i) => i);
 
-export function AudioPlayer({ src, className = "" }: AudioPlayerProps) {
+export const AudioPlayer = memo(function AudioPlayer({ src, className = "" }: AudioPlayerProps) {
 	const audioRef = useRef<HTMLAudioElement>(null);
 	const progressRef = useRef<HTMLDivElement>(null);
 	const [isPlaying, setIsPlaying] = useState(false);
@@ -47,24 +48,22 @@ export function AudioPlayer({ src, className = "" }: AudioPlayerProps) {
 		};
 	}, [src]);
 
-	// Format time as MM:SS
-	const formatTime = (seconds: number) => {
-		if (!Number.isFinite(seconds)) return "0:00";
-		const mins = Math.floor(seconds / 60);
-		const secs = Math.floor(seconds % 60);
-		return `${mins}:${secs.toString().padStart(2, "0")}`;
-	};
+	// Safe duration formatter that handles NaN/Infinity
+	const formatTime = useCallback(
+		(seconds: number) => formatDuration(Number.isFinite(seconds) ? seconds : 0),
+		[],
+	);
 
-	// Play/Pause toggle
-	const togglePlay = () => {
+	// Play/Pause toggle (memoized)
+	const togglePlay = useCallback(() => {
 		if (!audioRef.current) return;
 		if (isPlaying) {
 			audioRef.current.pause();
 		} else {
 			audioRef.current.play();
 		}
-		setIsPlaying(!isPlaying);
-	};
+		setIsPlaying((prev) => !prev);
+	}, [isPlaying]);
 
 	// Handle time update
 	useEffect(() => {
@@ -104,11 +103,18 @@ export function AudioPlayer({ src, className = "" }: AudioPlayerProps) {
 		[duration],
 	);
 
-	const handleProgressClick = (e: React.MouseEvent) => seekTo(e.clientX);
-	const handleMouseDown = (e: React.MouseEvent) => {
-		setIsDragging(true);
-		seekTo(e.clientX);
-	};
+	const handleProgressClick = useCallback(
+		(e: React.MouseEvent) => seekTo(e.clientX),
+		[seekTo]
+	);
+
+	const handleMouseDown = useCallback(
+		(e: React.MouseEvent) => {
+			setIsDragging(true);
+			seekTo(e.clientX);
+		},
+		[seekTo]
+	);
 
 	useEffect(() => {
 		if (!isDragging) return;
@@ -122,17 +128,24 @@ export function AudioPlayer({ src, className = "" }: AudioPlayerProps) {
 		};
 	}, [isDragging, seekTo]);
 
-	const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
+	// Memoize progress calculation
+	const progress = useMemo(
+		() => (duration > 0 ? (currentTime / duration) * 100 : 0),
+		[currentTime, duration]
+	);
 
-	// Get bar height from waveform data or fallback
-	const getBarHeight = (index: number) => {
-		if (waveform.length > 0 && waveform[index] !== undefined) {
-			// Use real waveform data, scale to reasonable visual range
-			return 0.15 + waveform[index] * 0.7;
-		}
-		// Fallback: subtle flat bars while loading
-		return 0.2;
-	};
+	// Get bar height from waveform data or fallback (memoized)
+	const getBarHeight = useCallback(
+		(index: number) => {
+			if (waveform.length > 0 && waveform[index] !== undefined) {
+				// Use real waveform data, scale to reasonable visual range
+				return 0.15 + waveform[index] * 0.7;
+			}
+			// Fallback: subtle flat bars while loading
+			return 0.2;
+		},
+		[waveform]
+	);
 
 	return (
 		<div className={`bg-card ${className}`}>
@@ -215,7 +228,7 @@ export function AudioPlayer({ src, className = "" }: AudioPlayerProps) {
 						>
 							{/* Waveform background - real audio data */}
 							<div className="absolute inset-0 flex items-center gap-px px-1">
-								{[...Array(WAVEFORM_BARS)].map((_, i) => (
+								{WAVEFORM_INDICES.map((i) => (
 									<div
 										key={i}
 										className={`flex-1 transition-all duration-300 ${isLoadingWaveform ? "bg-foreground/10 animate-pulse" : "bg-foreground/15"}`}
@@ -233,7 +246,7 @@ export function AudioPlayer({ src, className = "" }: AudioPlayerProps) {
 									className="absolute inset-0 flex items-center gap-px px-1"
 									style={{ width: `${(100 / (progress || 1)) * 100}%` }}
 								>
-									{[...Array(WAVEFORM_BARS)].map((_, i) => (
+									{WAVEFORM_INDICES.map((i) => (
 										<div
 											key={i}
 											className="flex-1 bg-foreground/70"
@@ -295,4 +308,4 @@ export function AudioPlayer({ src, className = "" }: AudioPlayerProps) {
 			</div>
 		</div>
 	);
-}
+});
