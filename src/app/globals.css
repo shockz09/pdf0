@@ -1247,3 +1247,23 @@ input.markdown-editor:focus {
   border-radius: 2px;
   transition: all 0.15s ease;
 }
+
+/* ============================================
+   PDF EDITOR - FABRIC.JS CANVAS
+   ============================================ */
+
+/* Ensure Fabric.js container respects parent dimensions */
+.fabric-canvas-wrapper {
+  width: 100% !important;
+  height: 100% !important;
+  position: relative !important;
+}
+
+.fabric-canvas-wrapper canvas {
+  display: block !important;
+}
+
+/* Upper canvas should receive all pointer events */
+.fabric-canvas-wrapper .upper-canvas {
+  cursor: crosshair;
+}
